@@ -1,0 +1,20 @@
+## @file
+#  MikroTik CCR2004 platform package declaration.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  DEC_SPECIFICATION              = 0x00010005
+  PACKAGE_NAME                   = CCR2004
+  PACKAGE_GUID                   = a1b2c3d4-5678-9abc-def0-1234567890ab
+  PACKAGE_VERSION                = 0.1
+
+[Includes]
+  Include
+
+[Guids]
+  gCCR2004TokenSpaceGuid = { 0xa1b2c3d4, 0x5678, 0x9abc, { 0xde, 0xf0, 0x12, 0x34, 0x56, 0x78, 0x90, 0xab } }

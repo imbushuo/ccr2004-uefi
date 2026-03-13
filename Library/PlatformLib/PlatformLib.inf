@@ -1,0 +1,41 @@
+## @file
+#  ArmPlatformLib implementation for MikroTik CCR2004.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 1.30
+  BASE_NAME                      = PlatformLib
+  FILE_GUID                      = e4a267c5-d209-4a12-b4f3-72a5c8e9b0c1
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = ArmPlatformLib
+
+[Sources.common]
+  PlatformLib.c
+  PlatformLibMem.c
+
+[Sources.AArch64]
+  AArch64/PlatformHelper.S
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  ArmPkg/ArmPkg.dec
+  ArmPlatformPkg/ArmPlatformPkg.dec
+
+[LibraryClasses]
+  ArmLib
+  DebugLib
+  MemoryAllocationLib
+
+[Ppis]
+  gArmMpCoreInfoPpiGuid
+
+[FixedPcd]
+  gArmTokenSpaceGuid.PcdArmPrimaryCoreMask
+  gArmTokenSpaceGuid.PcdArmPrimaryCore

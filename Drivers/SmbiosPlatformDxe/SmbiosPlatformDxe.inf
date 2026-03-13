@@ -1,0 +1,35 @@
+## @file
+#  Static SMBIOS tables for MikroTik CCR2004-1G-2XS-PCIe.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001b
+  BASE_NAME                      = SmbiosPlatformDxe
+  FILE_GUID                      = a1b2c3d4-5678-9abc-def0-123456789abc
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = SmbiosPlatformDxeEntry
+
+[Sources]
+  SmbiosPlatformDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  ArmPkg/ArmPkg.dec
+
+[LibraryClasses]
+  DebugLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Protocols]
+  gEfiSmbiosProtocolGuid
+
+[Depex]
+  gEfiSmbiosProtocolGuid

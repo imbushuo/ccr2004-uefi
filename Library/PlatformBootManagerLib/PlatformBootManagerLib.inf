@@ -1,0 +1,42 @@
+## @file
+#  PlatformBootManagerLib for MikroTik CCR2004.
+#
+#  Connects serial console, signals EndOfDxe, registers hotkeys,
+#  and launches UiApp (Setup menu) when no bootable option is found.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001b
+  BASE_NAME                      = PlatformBootManagerLib
+  FILE_GUID                      = ee33c4a1-b7f5-4a3d-8e22-aabbccdd1234
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = PlatformBootManagerLib|DXE_DRIVER
+
+[Sources]
+  PlatformBootManager.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+
+[LibraryClasses]
+  BaseLib
+  DebugLib
+  DevicePathLib
+  MemoryAllocationLib
+  UefiBootServicesTableLib
+  UefiBootManagerLib
+  UefiLib
+
+[Guids]
+  gEfiEndOfDxeEventGroupGuid
+
+[Protocols]
+  gEfiSimpleTextInProtocolGuid
+  gEfiSimpleTextOutProtocolGuid

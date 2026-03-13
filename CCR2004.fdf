@@ -56,6 +56,7 @@ WRITE_STATUS       = TRUE
     INF ArmPkg/Drivers/TimerDxe/TimerDxe.inf
     INF MdeModulePkg/Core/RuntimeDxe/RuntimeDxe.inf
     INF MdeModulePkg/Universal/SecurityStubDxe/SecurityStubDxe.inf
+    INF Platform/MikroTik/CCR2004/Drivers/PlatformGpioDxe/PlatformGpioDxe.inf
   }
 
   # DXE Core
@@ -83,11 +84,20 @@ WRITE_STATUS       = TRUE
   INF MdeModulePkg/Universal/SmbiosDxe/SmbiosDxe.inf
   INF Platform/MikroTik/CCR2004/Drivers/SmbiosPlatformDxe/SmbiosPlatformDxe.inf
 
+  # PCI
+  INF ArmPkg/Drivers/ArmPciCpuIo2Dxe/ArmPciCpuIo2Dxe.inf
+  INF MdeModulePkg/Bus/Pci/PciHostBridgeDxe/PciHostBridgeDxe.inf
+  INF MdeModulePkg/Bus/Pci/PciBusDxe/PciBusDxe.inf
+
   # Serial console
   INF MdeModulePkg/Universal/SerialDxe/SerialDxe.inf
   INF MdeModulePkg/Universal/Console/ConSplitterDxe/ConSplitterDxe.inf
   INF MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe.inf
   INF MdeModulePkg/Universal/Console/TerminalDxe/TerminalDxe.inf
+
+  # GPIO
+  INF Platform/MikroTik/CCR2004/Drivers/PlatformGpioDxe/PlatformGpioDxe.inf
+  INF ArmPlatformPkg/Drivers/PL061GpioDxe/PL061GpioDxe.inf
 
   # Form Browser (required by UiApp)
   INF MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf

@@ -16,7 +16,7 @@
 #define CCR2004_DRAM_SECONDARY_BASE 0x80000000ULL
 #define CCR2004_DRAM_SECONDARY_SIZE 0x40000000ULL  // 1GB
 #define CCR2004_PERIPH_BASE         0xF0000000ULL
-#define CCR2004_PERIPH_SIZE         0x10000000ULL  // 256MB
+#define CCR2004_PERIPH_SIZE         0x10000000ULL  // 256MB (includes ECAM at 0xFBC00000, PCIe MMIO at 0xFE000000)
 
 #define MAX_VIRTUAL_MEMORY_MAP_DESCRIPTORS  4
 
@@ -59,7 +59,7 @@ ArmPlatformGetVirtualMemoryMap (
   VirtualMemoryTable[Index].Attributes   = ARM_MEMORY_REGION_ATTRIBUTE_WRITE_BACK;
   Index++;
 
-  // SoC peripherals (GIC, UART, etc.)
+  // SoC peripherals (GIC, UART, PCIe ECAM @ 0xFBC00000, PCIe MMIO @ 0xFE000000)
   VirtualMemoryTable[Index].PhysicalBase = CCR2004_PERIPH_BASE;
   VirtualMemoryTable[Index].VirtualBase  = CCR2004_PERIPH_BASE;
   VirtualMemoryTable[Index].Length       = CCR2004_PERIPH_SIZE;

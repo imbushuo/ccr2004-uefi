@@ -1,0 +1,28 @@
+## @file
+#  PCI Host Bridge Library for MikroTik CCR2004 (Alpine V2 internal PCIe).
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001b
+  BASE_NAME                      = PciHostBridgeLib
+  FILE_GUID                      = aabb1122-3344-5566-7788-99aabbccddee
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = PciHostBridgeLib|DXE_DRIVER
+
+[Sources]
+  PciHostBridgeLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+
+[LibraryClasses]
+  BaseLib
+  DebugLib
+  DevicePathLib

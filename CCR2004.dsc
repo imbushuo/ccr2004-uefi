@@ -53,8 +53,12 @@
   # Serial (NS16550A over MMIO)
   SerialPortLib|MdeModulePkg/Library/BaseSerialPortLib16550/BaseSerialPortLib16550.inf
   PlatformHookLib|MdeModulePkg/Library/BasePlatformHookLibNull/BasePlatformHookLibNull.inf
+
+  # PCI
   PciLib|MdePkg/Library/BasePciLibPciExpress/BasePciLibPciExpress.inf
   PciExpressLib|MdePkg/Library/BasePciExpressLib/BasePciExpressLib.inf
+  PciSegmentLib|MdePkg/Library/BasePciSegmentLibPci/BasePciSegmentLibPci.inf
+  PciHostBridgeLib|Platform/MikroTik/CCR2004/Library/PciHostBridgeLib/PciHostBridgeLib.inf
 
   # ARM libraries
   ArmLib|ArmPkg/Library/ArmLib/ArmBaseLib.inf
@@ -220,8 +224,15 @@
   # Boot timeout
   gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut|3
 
+  # PCI Express ECAM base (Alpine V2 internal PCIe)
+  gEfiMdePkgTokenSpaceGuid.PcdPciExpressBaseAddress|0xFBC00000
+  gEfiMdePkgTokenSpaceGuid.PcdPciExpressBaseSize|0x100000
+
   # UiApp GUID (462CAA21-7614-4503-836E-8AB6F4662331) - launched by BDS as Setup menu
   gEfiMdeModulePkgTokenSpaceGuid.PcdBootManagerMenuFile|{ 0x21, 0xAA, 0x2C, 0x46, 0x14, 0x76, 0x03, 0x45, 0x83, 0x6E, 0x8A, 0xB6, 0xF4, 0x66, 0x23, 0x31 }
+
+  # GPIO (PL061 fallback base; PLATFORM_GPIO_CONTROLLER protocol takes priority)
+  gArmPlatformTokenSpaceGuid.PcdPL061GpioBase|0xFD887000
 
 ################################################################################
 #
@@ -270,6 +281,13 @@
   Platform/MikroTik/CCR2004/Drivers/SmbiosPlatformDxe/SmbiosPlatformDxe.inf
 
   #
+  # PCI
+  #
+  ArmPkg/Drivers/ArmPciCpuIo2Dxe/ArmPciCpuIo2Dxe.inf
+  MdeModulePkg/Bus/Pci/PciHostBridgeDxe/PciHostBridgeDxe.inf
+  MdeModulePkg/Bus/Pci/PciBusDxe/PciBusDxe.inf
+
+  #
   # Serial console
   #
   MdeModulePkg/Universal/SerialDxe/SerialDxe.inf
@@ -293,3 +311,9 @@
       NULL|MdeModulePkg/Library/BootMaintenanceManagerUiLib/BootMaintenanceManagerUiLib.inf
   }
   MdeModulePkg/Application/BootManagerMenuApp/BootManagerMenuApp.inf
+
+  #
+  # GPIO (PL061)
+  #
+  Platform/MikroTik/CCR2004/Drivers/PlatformGpioDxe/PlatformGpioDxe.inf
+  ArmPlatformPkg/Drivers/PL061GpioDxe/PL061GpioDxe.inf

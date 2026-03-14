@@ -99,6 +99,22 @@ WRITE_STATUS       = TRUE
   INF Platform/MikroTik/CCR2004/Drivers/PlatformGpioDxe/PlatformGpioDxe.inf
   INF ArmPlatformPkg/Drivers/PL061GpioDxe/PL061GpioDxe.inf
 
+  # I2C
+  INF Platform/MikroTik/CCR2004/Drivers/DwI2cDxe/DwI2cDxe.inf
+  INF Platform/MikroTik/CCR2004/Drivers/Pca954xDxe/Pca954xDxe.inf
+  INF Platform/MikroTik/CCR2004/Drivers/FanDxe/FanDxe.inf
+  INF MdeModulePkg/Bus/I2c/I2cDxe/I2cHostDxe.inf
+
+  # SPI
+  INF Platform/MikroTik/CCR2004/Drivers/DwSpiDxe/DwSpiDxe.inf
+  INF MdeModulePkg/Bus/Spi/SpiBus/SpiBusDxe.inf
+
+  # NAND
+  INF Platform/MikroTik/CCR2004/Drivers/AlNandDxe/AlNandDxe.inf
+
+  # Unicode Collation (required by Shell)
+  INF MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe.inf
+
   # Form Browser (required by UiApp)
   INF MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf
   INF MdeModulePkg/Universal/DisplayEngineDxe/DisplayEngineDxe.inf
@@ -106,6 +122,9 @@ WRITE_STATUS       = TRUE
   # Setup UI
   INF MdeModulePkg/Application/UiApp/UiApp.inf
   INF MdeModulePkg/Application/BootManagerMenuApp/BootManagerMenuApp.inf
+
+  # UEFI Shell
+  INF ShellPkg/Application/Shell/Shell.inf
 
 #
 # Boot FV: PeilessSec + compressed DXE FV

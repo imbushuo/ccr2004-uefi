@@ -1,0 +1,49 @@
+## @file
+#  DesignWare SPI (SSI) controller DXE driver for MikroTik CCR2004.
+#
+#  Drives the snps,designware-ssi SPI controller on the Alpine V2 SoC.
+#  Produces EFI_SPI_HC_PROTOCOL, EFI_SPI_CONFIGURATION_PROTOCOL, and
+#  EFI_DEVICE_PATH_PROTOCOL.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001b
+  BASE_NAME                      = DwSpiDxe
+  FILE_GUID                      = 7a2e3b4c-e5f1-4a06-b7d9-2eab1f4d6e83
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = DwSpiDxeInitialize
+
+[Sources]
+  DwSpiDxe.c
+  DwSpiDxe.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Platform/MikroTik/CCR2004/CCR2004.dec
+
+[LibraryClasses]
+  BaseLib
+  DebugLib
+  IoLib
+  MemoryAllocationLib
+  TimerLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiLib
+
+[Protocols]
+  gEfiSpiHcProtocolGuid                         ## PRODUCES
+  gEfiSpiConfigurationProtocolGuid              ## PRODUCES
+  gEfiDevicePathProtocolGuid                    ## PRODUCES
+
+[Guids]
+  gEfiSpiNorFlashDriverGuid                     ## CONSUMES
+
+[Depex]
+  TRUE

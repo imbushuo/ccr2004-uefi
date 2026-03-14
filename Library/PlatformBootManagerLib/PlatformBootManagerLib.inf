@@ -27,6 +27,7 @@
 
 [LibraryClasses]
   BaseLib
+  BaseMemoryLib
   DebugLib
   DevicePathLib
   MemoryAllocationLib
@@ -38,5 +39,6 @@
   gEfiEndOfDxeEventGroupGuid
 
 [Protocols]
+  gEfiFirmwareVolume2ProtocolGuid
   gEfiSimpleTextInProtocolGuid
   gEfiSimpleTextOutProtocolGuid

@@ -1,0 +1,50 @@
+## @file
+#  DesignWare I2C controller DXE driver for MikroTik CCR2004.
+#
+#  Drives the two snps,designware-i2c controllers on the Alpine V2 SoC.
+#  Produces EFI_I2C_MASTER_PROTOCOL, EFI_I2C_ENUMERATE_PROTOCOL,
+#  EFI_I2C_BUS_CONFIGURATION_MANAGEMENT_PROTOCOL, and
+#  EFI_DEVICE_PATH_PROTOCOL on one handle per controller.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001b
+  BASE_NAME                      = DwI2cDxe
+  FILE_GUID                      = 3a8e7b2c-d4f1-4905-b6c8-1e9a0f3d5c72
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = DwI2cDxeInitialize
+
+[Sources]
+  DwI2cDxe.c
+  DwI2cDxe.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  BaseLib
+  DebugLib
+  IoLib
+  MemoryAllocationLib
+  TimerLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiLib
+
+[Protocols]
+  gEfiI2cMasterProtocolGuid                         ## PRODUCES
+  gEfiI2cEnumerateProtocolGuid                      ## PRODUCES
+  gEfiI2cBusConfigurationManagementProtocolGuid     ## PRODUCES
+  gEfiDevicePathProtocolGuid                        ## PRODUCES
+
+[Guids]
+  gEfiEndOfDxeEventGroupGuid                        ## CONSUMES ## EVENT
+
+[Depex]
+  TRUE

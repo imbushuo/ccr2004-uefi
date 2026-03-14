@@ -1,0 +1,51 @@
+## @file
+#  PCA954x I2C mux/switch DXE driver for MikroTik CCR2004.
+#
+#  Creates child I2C bus handles for each channel of the PCA9546
+#  4-channel I2C switch at address 0x70 on the i2c-gen bus.
+#  Produces EFI_I2C_MASTER_PROTOCOL, EFI_I2C_ENUMERATE_PROTOCOL,
+#  EFI_I2C_BUS_CONFIGURATION_MANAGEMENT_PROTOCOL, and
+#  EFI_DEVICE_PATH_PROTOCOL on one handle per mux channel.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001b
+  BASE_NAME                      = Pca954xDxe
+  FILE_GUID                      = b5e2a6d1-7c3f-4e8a-910d-2b4f6c8ea357
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = Pca954xDxeInitialize
+
+[Sources]
+  Pca954xDxe.c
+  Pca954xDxe.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  DevicePathLib
+  MemoryAllocationLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiLib
+
+[Protocols]
+  gEfiI2cMasterProtocolGuid                         ## CONSUMES ## PRODUCES
+  gEfiI2cEnumerateProtocolGuid                      ## PRODUCES
+  gEfiI2cBusConfigurationManagementProtocolGuid     ## PRODUCES
+  gEfiDevicePathProtocolGuid                        ## CONSUMES ## PRODUCES
+
+[Guids]
+  gEfiEndOfDxeEventGroupGuid                        ## CONSUMES ## EVENT
+
+[Depex]
+  gEfiI2cMasterProtocolGuid

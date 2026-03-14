@@ -10,14 +10,24 @@
 **/
 
 #include <Guid/EventGroup.h>
+#include <Protocol/FirmwareVolume2.h>
 #include <Protocol/SimpleTextIn.h>
 #include <Protocol/SimpleTextOut.h>
+#include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
 #include <Library/DevicePathLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/UefiBootManagerLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
+
+//
+// Shell application FILE_GUID from ShellPkg/Application/Shell/Shell.inf
+//
+STATIC EFI_GUID mUefiShellFileGuid = {
+  0x7C04A583, 0x9E3E, 0x4f1c,
+  { 0xAD, 0x65, 0xE0, 0x52, 0x68, 0xD0, 0xB4, 0xD1 }
+};
 
 /**
   Find all SimpleTextOut/SimpleTextIn handles and register them
@@ -107,6 +117,134 @@ PlatformBootManagerBeforeConsole (
   PlatformRegisterConsoles ();
 }
 
+/**
+  Register an application from the firmware volume as a boot option,
+  if not already present.
+**/
+STATIC
+VOID
+PlatformRegisterFvBootOption (
+  IN  EFI_GUID   *FileGuid,
+  IN  CHAR16     *Description,
+  IN  UINT32     Attributes
+  )
+{
+  EFI_STATUS                          Status;
+  UINTN                               HandleCount;
+  EFI_HANDLE                          *HandleBuffer;
+  UINTN                               Index;
+  EFI_FIRMWARE_VOLUME2_PROTOCOL       *Fv;
+  EFI_FV_FILETYPE                     FoundType;
+  UINT32                              FvStatus;
+  EFI_FV_FILE_ATTRIBUTES              FileAttributes;
+  UINTN                               Size;
+  EFI_DEVICE_PATH_PROTOCOL            *DevicePath;
+  MEDIA_FW_VOL_FILEPATH_DEVICE_PATH   FileNode;
+  EFI_BOOT_MANAGER_LOAD_OPTION        NewOption;
+  EFI_BOOT_MANAGER_LOAD_OPTION        *BootOptions;
+  UINTN                               BootOptionCount;
+  BOOLEAN                             Found;
+
+  //
+  // Locate the FV containing the file.
+  //
+  Status = gBS->LocateHandleBuffer (
+                  ByProtocol,
+                  &gEfiFirmwareVolume2ProtocolGuid,
+                  NULL,
+                  &HandleCount,
+                  &HandleBuffer
+                  );
+  if (EFI_ERROR (Status)) {
+    return;
+  }
+
+  for (Index = 0; Index < HandleCount; Index++) {
+    Status = gBS->HandleProtocol (
+                    HandleBuffer[Index],
+                    &gEfiFirmwareVolume2ProtocolGuid,
+                    (VOID **)&Fv
+                    );
+    if (EFI_ERROR (Status)) {
+      continue;
+    }
+
+    FoundType = EFI_FV_FILETYPE_APPLICATION;
+    Status = Fv->ReadFile (
+                   Fv,
+                   FileGuid,
+                   NULL,
+                   &Size,
+                   &FoundType,
+                   &FileAttributes,
+                   &FvStatus
+                   );
+    if (!EFI_ERROR (Status)) {
+      break;
+    }
+  }
+
+  if (Index >= HandleCount) {
+    FreePool (HandleBuffer);
+    return;
+  }
+
+  //
+  // Build device path: FV device path + FV file node.
+  //
+  EfiInitializeFwVolDevicepathNode (&FileNode, FileGuid);
+  DevicePath = DevicePathFromHandle (HandleBuffer[Index]);
+  ASSERT (DevicePath != NULL);
+  DevicePath = AppendDevicePathNode (
+                 DevicePath,
+                 (EFI_DEVICE_PATH_PROTOCOL *)&FileNode
+                 );
+  FreePool (HandleBuffer);
+
+  //
+  // Check if this boot option already exists.
+  //
+  BootOptions = EfiBootManagerGetLoadOptions (
+                  &BootOptionCount,
+                  LoadOptionTypeBoot
+                  );
+
+  Found = FALSE;
+  for (Index = 0; Index < BootOptionCount; Index++) {
+    if ((BootOptions[Index].FilePath != NULL) &&
+        (CompareMem (
+           BootOptions[Index].FilePath,
+           DevicePath,
+           GetDevicePathSize (DevicePath)
+           ) == 0))
+    {
+      Found = TRUE;
+      break;
+    }
+  }
+
+  EfiBootManagerFreeLoadOptions (BootOptions, BootOptionCount);
+
+  if (!Found) {
+    Status = EfiBootManagerInitializeLoadOption (
+               &NewOption,
+               LoadOptionNumberUnassigned,
+               LoadOptionTypeBoot,
+               Attributes,
+               Description,
+               DevicePath,
+               NULL,
+               0
+               );
+    if (!EFI_ERROR (Status)) {
+      EfiBootManagerAddLoadOptionVariable (&NewOption, MAX_UINTN);
+      EfiBootManagerFreeLoadOption (&NewOption);
+    }
+  }
+
+  FreePool (DevicePath);
+}
+
 VOID
 EFIAPI
 PlatformBootManagerAfterConsole (
@@ -136,6 +274,15 @@ PlatformBootManagerAfterConsole (
       );
     EfiBootManagerFreeLoadOption (&BootOption);
   }
+
+  //
+  // Register UEFI Shell as a boot option.
+  //
+  PlatformRegisterFvBootOption (
+    &mUefiShellFileGuid,
+    L"UEFI Shell",
+    LOAD_OPTION_ACTIVE | LOAD_OPTION_CATEGORY_APP
+    );
 
   Print (L"Press ESC or F2 for Setup.\n");
 }

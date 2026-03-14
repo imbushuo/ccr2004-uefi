@@ -1,0 +1,43 @@
+## @file
+#  Fan controller keepalive DXE driver for MikroTik CCR2004.
+#
+#  Sends periodic PWM commands to the MikroTik MCU fan controller
+#  at I2C address 0x0d on bus 1 to prevent the MCU watchdog from
+#  spinning fans to 100%.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001b
+  BASE_NAME                      = FanDxe
+  FILE_GUID                      = a7c1e3f4-5b92-4d06-8e1f-c3a8d7b52e19
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = FanDxeInitialize
+
+[Sources]
+  FanDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  DevicePathLib
+  MemoryAllocationLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiLib
+
+[Protocols]
+  gEfiI2cMasterProtocolGuid                         ## CONSUMES
+  gEfiDevicePathProtocolGuid                        ## CONSUMES
+
+[Depex]
+  gEfiI2cMasterProtocolGuid

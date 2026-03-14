@@ -136,6 +136,14 @@
   # Sort
   SortLib|MdeModulePkg/Library/UefiSortLib/UefiSortLib.inf
 
+  # Shell
+  ShellLib|ShellPkg/Library/UefiShellLib/UefiShellLib.inf
+  ShellCommandLib|ShellPkg/Library/UefiShellCommandLib/UefiShellCommandLib.inf
+  ShellCEntryLib|ShellPkg/Library/UefiShellCEntryLib/UefiShellCEntryLib.inf
+  HandleParsingLib|ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.inf
+  FileHandleLib|MdePkg/Library/UefiFileHandleLib/UefiFileHandleLib.inf
+  BcfgCommandLib|ShellPkg/Library/UefiShellBcfgCommandLib/UefiShellBcfgCommandLib.inf
+
   # File exploration
   FileExplorerLib|MdeModulePkg/Library/FileExplorerLib/FileExplorerLib.inf
 
@@ -296,6 +304,11 @@
   MdeModulePkg/Universal/Console/TerminalDxe/TerminalDxe.inf
 
   #
+  # Unicode Collation (required by Shell and file system drivers)
+  #
+  MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe.inf
+
+  #
   # Form Browser (required by UiApp)
   #
   MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf
@@ -313,7 +326,41 @@
   MdeModulePkg/Application/BootManagerMenuApp/BootManagerMenuApp.inf
 
   #
+  # UEFI Shell
+  #
+  ShellPkg/Application/Shell/Shell.inf {
+    <PcdsFixedAtBuild>
+      gEfiShellPkgTokenSpaceGuid.PcdShellLibAutoInitialize|FALSE
+    <LibraryClasses>
+      NULL|ShellPkg/Library/UefiShellLevel2CommandsLib/UefiShellLevel2CommandsLib.inf
+      NULL|ShellPkg/Library/UefiShellLevel1CommandsLib/UefiShellLevel1CommandsLib.inf
+      NULL|ShellPkg/Library/UefiShellLevel3CommandsLib/UefiShellLevel3CommandsLib.inf
+      NULL|ShellPkg/Library/UefiShellDriver1CommandsLib/UefiShellDriver1CommandsLib.inf
+      NULL|ShellPkg/Library/UefiShellInstall1CommandsLib/UefiShellInstall1CommandsLib.inf
+      NULL|ShellPkg/Library/UefiShellDebug1CommandsLib/UefiShellDebug1CommandsLib.inf
+  }
+
+  #
   # GPIO (PL061)
   #
   Platform/MikroTik/CCR2004/Drivers/PlatformGpioDxe/PlatformGpioDxe.inf
   ArmPlatformPkg/Drivers/PL061GpioDxe/PL061GpioDxe.inf
+
+  #
+  # I2C (DesignWare)
+  #
+  Platform/MikroTik/CCR2004/Drivers/DwI2cDxe/DwI2cDxe.inf
+  Platform/MikroTik/CCR2004/Drivers/Pca954xDxe/Pca954xDxe.inf
+  Platform/MikroTik/CCR2004/Drivers/FanDxe/FanDxe.inf
+  MdeModulePkg/Bus/I2c/I2cDxe/I2cHostDxe.inf
+
+  #
+  # SPI (DesignWare)
+  #
+  Platform/MikroTik/CCR2004/Drivers/DwSpiDxe/DwSpiDxe.inf
+  MdeModulePkg/Bus/Spi/SpiBus/SpiBusDxe.inf
+
+  #
+  # NAND (Annapurna Labs + Toshiba BENAND)
+  #
+  Platform/MikroTik/CCR2004/Drivers/AlNandDxe/AlNandDxe.inf

@@ -1,0 +1,44 @@
+## @file
+#  Annapurna Labs NAND controller DXE driver for MikroTik CCR2004.
+#
+#  Drives the AL NAND controller on the Alpine V2 SoC with Toshiba BENAND
+#  flash. Produces EFI_BLOCK_IO_PROTOCOL (read-only) exposing raw NAND pages.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001b
+  BASE_NAME                      = AlNandDxe
+  FILE_GUID                      = 8b3e4d5c-f2a1-4b07-a8ea-3fbc2e5d7f94
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = AlNandDxeInitialize
+
+[Sources]
+  AlNandDxe.c
+  AlNandDxe.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  IoLib
+  MemoryAllocationLib
+  TimerLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiLib
+
+[Protocols]
+  gEfiBlockIoProtocolGuid                       ## PRODUCES
+  gEfiDevicePathProtocolGuid                    ## PRODUCES
+
+[Depex]
+  TRUE

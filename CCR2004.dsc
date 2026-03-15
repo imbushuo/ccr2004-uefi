@@ -23,6 +23,14 @@
   FLASH_DEFINITION               = Platform/MikroTik/CCR2004/CCR2004.fdf
   POSTBUILD                      = bash Platform/MikroTik/CCR2004/fd2elf.sh
 
+  # Network stack feature flags
+  DEFINE NETWORK_TLS_ENABLE             = TRUE
+  DEFINE NETWORK_HTTP_BOOT_ENABLE       = TRUE
+  DEFINE NETWORK_ALLOW_HTTP_CONNECTIONS = TRUE
+  DEFINE NETWORK_IP6_ENABLE             = TRUE
+  DEFINE NETWORK_SNP_ENABLE             = TRUE
+  DEFINE NETWORK_VLAN_ENABLE            = TRUE
+
 ################################################################################
 #
 # Library Class section - defaults (DXE phase)
@@ -147,6 +155,14 @@
   # File exploration
   FileExplorerLib|MdeModulePkg/Library/FileExplorerLib/FileExplorerLib.inf
 
+  # Crypto (for TLS/HTTPS)
+  BaseCryptLib|CryptoPkg/Library/BaseCryptLib/BaseCryptLib.inf
+  TlsLib|CryptoPkg/Library/TlsLib/TlsLib.inf
+  OpensslLib|CryptoPkg/Library/OpensslLib/OpensslLib.inf
+  IntrinsicLib|CryptoPkg/Library/IntrinsicLib/IntrinsicLib.inf
+  RngLib|MdeModulePkg/Library/BaseRngLibTimerLib/BaseRngLibTimerLib.inf
+  ArmTrngLib|MdePkg/Library/BaseArmTrngLibNull/BaseArmTrngLibNull.inf
+
   # Security
   SecurityManagementLib|MdeModulePkg/Library/DxeSecurityManagementLib/DxeSecurityManagementLib.inf
 
@@ -225,12 +241,18 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString|L"CCR2004 0.1"
 
   # Emulated variable store (RAM-backed, no flash)
+  # Sizes increased for TLS CA certificate storage
   gEfiMdeModulePkgTokenSpaceGuid.PcdEmuVariableNvModeEnable|TRUE
-  gEfiMdeModulePkgTokenSpaceGuid.PcdMaxVariableSize|0x2000
-  gEfiMdeModulePkgTokenSpaceGuid.PcdMaxAuthVariableSize|0x2800
+  gEfiMdeModulePkgTokenSpaceGuid.PcdMaxVariableSize|0x10000
+  gEfiMdeModulePkgTokenSpaceGuid.PcdMaxAuthVariableSize|0x10000
+  gEfiMdeModulePkgTokenSpaceGuid.PcdVariableStoreSize|0x80000
+  gEfiMdeModulePkgTokenSpaceGuid.PcdMaxVolatileVariableSize|0x40000
 
   # Boot timeout
   gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut|3
+
+  # RNG: Cortex-A72 has no hardware TRNG, allow timer-based unsafe algorithm
+  gEfiMdePkgTokenSpaceGuid.PcdEnforceSecureRngAlgorithms|FALSE
 
   # PCI Express ECAM base (Alpine V2 internal PCIe)
   gEfiMdePkgTokenSpaceGuid.PcdPciExpressBaseAddress|0xFBC00000
@@ -338,6 +360,8 @@
       NULL|ShellPkg/Library/UefiShellDriver1CommandsLib/UefiShellDriver1CommandsLib.inf
       NULL|ShellPkg/Library/UefiShellInstall1CommandsLib/UefiShellInstall1CommandsLib.inf
       NULL|ShellPkg/Library/UefiShellDebug1CommandsLib/UefiShellDebug1CommandsLib.inf
+      NULL|ShellPkg/Library/UefiShellNetwork1CommandsLib/UefiShellNetwork1CommandsLib.inf
+      NULL|ShellPkg/Library/UefiShellNetwork2CommandsLib/UefiShellNetwork2CommandsLib.inf
   }
 
   #
@@ -364,3 +388,24 @@
   # NAND (Annapurna Labs + Toshiba BENAND)
   #
   Platform/MikroTik/CCR2004/Drivers/AlNandDxe/AlNandDxe.inf
+
+  #
+  # Ethernet (Annapurna Labs)
+  #
+  Platform/MikroTik/CCR2004/Drivers/AlEthDxe/AlEthDxe.inf
+
+  #
+  # Security services (required by network stack)
+  #
+  SecurityPkg/RandomNumberGenerator/RngDxe/RngDxe.inf
+  SecurityPkg/Hash2DxeCrypto/Hash2DxeCrypto.inf
+
+  #
+  # RAM Disk (required for HTTP boot of ISO/EFI images)
+  #
+  MdeModulePkg/Universal/Disk/RamDiskDxe/RamDiskDxe.inf
+
+  #
+  # Network Stack (defines, libs, PCDs, build opts, components)
+  #
+!include NetworkPkg/Network.dsc.inc

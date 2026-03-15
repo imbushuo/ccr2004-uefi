@@ -1,0 +1,51 @@
+## @file
+#  Annapurna Labs Ethernet DXE driver for MikroTik CCR2004.
+#
+#  Drives the AL Ethernet MAC on the Alpine V2 SoC (PCI 1c36:0001) with
+#  an external Atheros AR8035 PHY over RGMII. Produces
+#  EFI_SIMPLE_NETWORK_PROTOCOL to support PXE boot.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001b
+  BASE_NAME                      = AlEthDxe
+  FILE_GUID                      = 7a3c9e1f-d5b2-4a08-9c6e-1f4d8b2a5e73
+  MODULE_TYPE                    = UEFI_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = AlEthDxeEntryPoint
+
+[Sources]
+  AlEthDxe.c
+  AlEthDxe.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  NetworkPkg/NetworkPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  CacheMaintenanceLib
+  DebugLib
+  DevicePathLib
+  IoLib
+  MemoryAllocationLib
+  NetLib
+  TimerLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiLib
+
+[Protocols]
+  gEfiCpuArchProtocolGuid                  ## CONSUMES
+  gEfiSimpleNetworkProtocolGuid            ## BY_START
+  gEfiDevicePathProtocolGuid               ## BY_START
+  gEfiPciIoProtocolGuid                    ## TO_START
+
+[Depex]
+  TRUE

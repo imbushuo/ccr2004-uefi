@@ -317,6 +317,14 @@ PlatformBootManagerUnableToBoot (
   //
   EfiBootManagerConnectAll ();
 
+  //
+  // Enumerate all discoverable boot options (PXE, HTTP boot, etc.)
+  // so they appear in the Boot Manager menu inside UiApp.
+  // This is intentionally NOT done in AfterConsole to avoid
+  // automatic PXE/network boot attempts during normal startup.
+  //
+  EfiBootManagerRefreshAllBootOption ();
+
   DEBUG ((DEBUG_INFO, "[CCR2004] Launching UiApp (Boot Manager Menu)...\n"));
   EfiBootManagerBoot (&BootManagerMenu);
   DEBUG ((DEBUG_INFO, "[CCR2004] UiApp returned: %r\n", BootManagerMenu.Status));

@@ -30,7 +30,7 @@
 #define FAN_MCU_REG_VERSION     0x90
 #define FAN_MCU_REG_COMMAND     0x98
 #define FAN_MCU_CMD_PWM         0x23
-#define FAN_PWM_VALUE           102       // ~40% (102/255)
+#define FAN_PWM_VALUE           51        // ~20% (51/255)
 #define FAN_KEEPALIVE_INTERVAL  40000000  // 4 seconds in 100ns units
 
 //

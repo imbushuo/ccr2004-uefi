@@ -112,6 +112,19 @@ WRITE_STATUS       = TRUE
   # NAND
   INF Platform/MikroTik/CCR2004/Drivers/AlNandDxe/AlNandDxe.inf
 
+  # Ethernet
+  INF Platform/MikroTik/CCR2004/Drivers/AlEthDxe/AlEthDxe.inf
+
+  # Security services (RNG + Hash2, required by network stack)
+  INF SecurityPkg/RandomNumberGenerator/RngDxe/RngDxe.inf
+  INF SecurityPkg/Hash2DxeCrypto/Hash2DxeCrypto.inf
+
+  # RAM Disk
+  INF MdeModulePkg/Universal/Disk/RamDiskDxe/RamDiskDxe.inf
+
+  # Network Stack
+!include NetworkPkg/Network.fdf.inc
+
   # Unicode Collation (required by Shell)
   INF MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe.inf
 

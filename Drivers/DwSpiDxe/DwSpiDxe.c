@@ -86,7 +86,7 @@ STATIC EFI_SPI_CONFIGURATION_PROTOCOL  mSpiConfig = {
   mSpiBusList                          // Buslist
 };
 
-extern EFI_GUID  gEfiSpiNorFlashDriverGuid;
+extern EFI_GUID  gEdk2JedecSfdpSpiDxeDriverGuid;
 
 // ---------------------------------------------------------------------------
 // Low-level helpers
@@ -636,7 +636,7 @@ DwSpiDxeInitialize (
   //
   // Set peripheral driver GUID
   //
-  mSpiFlashPeripheral.SpiPeripheralDriverGuid = &gEfiSpiNorFlashDriverGuid;
+  mSpiFlashPeripheral.SpiPeripheralDriverGuid = &gEdk2JedecSfdpSpiDxeDriverGuid;
 
   //
   // Install SPI HC + Device Path on context handle

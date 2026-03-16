@@ -25,6 +25,7 @@
 
 [Packages]
   MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
   Platform/MikroTik/CCR2004/CCR2004.dec
 
 [LibraryClasses]
@@ -43,7 +44,7 @@
   gEfiDevicePathProtocolGuid                    ## PRODUCES
 
 [Guids]
-  gEfiSpiNorFlashDriverGuid                     ## CONSUMES
+  gEdk2JedecSfdpSpiDxeDriverGuid                ## CONSUMES
 
 [Depex]
   TRUE

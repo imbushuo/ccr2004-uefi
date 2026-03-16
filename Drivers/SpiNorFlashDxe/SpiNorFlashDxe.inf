@@ -1,0 +1,50 @@
+## @file
+#  SPI NOR Flash driver for Winbond W25Q128JWS on MikroTik CCR2004.
+#
+#  Produces EFI_SPI_NOR_FLASH_PROTOCOL using standard SPI NOR commands
+#  over the EFI_SPI_IO_PROTOCOL provided by SpiBusDxe.
+#  Flash geometry: 16MB, 4KB sectors, 256B pages, 3-byte addressing.
+#  Write-protected by default (no writes unless explicitly requested).
+#
+#  Modeled after Silicon/Marvell/Drivers/Spi/MvSpiFlashDxe.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001b
+  BASE_NAME                      = SpiNorFlashDxe
+  FILE_GUID                      = e4a7c2b1-3d58-4f09-8b6e-1c9d5a7f2e30
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = SpiNorFlashDxeEntry
+
+[Sources]
+  SpiNorFlashDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  Platform/MikroTik/CCR2004/CCR2004.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  MemoryAllocationLib
+  TimerLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiLib
+
+[Protocols]
+  gEfiSpiNorFlashProtocolGuid            ## PRODUCES
+
+[Guids]
+  gEdk2JedecSfdpSpiDxeDriverGuid        ## CONSUMES  # EFI_SPI_IO installed with this GUID
+
+[Depex]
+  gEdk2JedecSfdpSpiDxeDriverGuid

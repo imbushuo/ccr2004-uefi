@@ -105,9 +105,10 @@ WRITE_STATUS       = TRUE
   INF Platform/MikroTik/CCR2004/Drivers/FanDxe/FanDxe.inf
   INF MdeModulePkg/Bus/I2c/I2cDxe/I2cHostDxe.inf
 
-  # SPI
+  # SPI + SPI NOR Flash
   INF Platform/MikroTik/CCR2004/Drivers/DwSpiDxe/DwSpiDxe.inf
   INF MdeModulePkg/Bus/Spi/SpiBus/SpiBusDxe.inf
+  INF Platform/MikroTik/CCR2004/Drivers/SpiNorFlashDxe/SpiNorFlashDxe.inf
 
   # NAND
   INF Platform/MikroTik/CCR2004/Drivers/AlNandDxe/AlNandDxe.inf

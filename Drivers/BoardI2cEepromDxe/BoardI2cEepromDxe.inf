@@ -1,0 +1,43 @@
+## @file
+#  Board I2C EEPROM scanner/dumper for MikroTik CCR2004.
+#
+#  Scans both I2C buses for an ST M24C64-F (or compatible) EEPROM
+#  at addresses 0x50-0x57 and dumps its contents to serial.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001b
+  BASE_NAME                      = BoardI2cEepromDxe
+  FILE_GUID                      = c8e3a1d5-7f04-4b29-9a6c-2e5d8b3f1a46
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = BoardI2cEepromDxeEntry
+
+[Sources]
+  BoardI2cEepromDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  DevicePathLib
+  MemoryAllocationLib
+  PrintLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiLib
+
+[Protocols]
+  gEfiI2cMasterProtocolGuid                         ## CONSUMES
+  gEfiDevicePathProtocolGuid                        ## CONSUMES
+
+[Depex]
+  gEfiI2cMasterProtocolGuid

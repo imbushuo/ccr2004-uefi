@@ -401,10 +401,11 @@
   MdeModulePkg/Bus/I2c/I2cDxe/I2cHostDxe.inf
 
   #
-  # SPI (DesignWare)
+  # SPI (DesignWare) + SPI NOR Flash
   #
   Platform/MikroTik/CCR2004/Drivers/DwSpiDxe/DwSpiDxe.inf
   MdeModulePkg/Bus/Spi/SpiBus/SpiBusDxe.inf
+  Platform/MikroTik/CCR2004/Drivers/SpiNorFlashDxe/SpiNorFlashDxe.inf
 
   #
   # NAND (Annapurna Labs + Toshiba BENAND)
@@ -415,6 +416,11 @@
   # Device Tree
   #
   EmbeddedPkg/Drivers/DtPlatformDxe/DtPlatformDxe.inf
+
+  #
+  # Board I2C EEPROM scanner (diagnostic)
+  #
+  Platform/MikroTik/CCR2004/Drivers/BoardI2cEepromDxe/BoardI2cEepromDxe.inf
 
   #
   # Ethernet (Annapurna Labs — HAL-based driver)

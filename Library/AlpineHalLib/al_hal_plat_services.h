@@ -15,6 +15,7 @@
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
 #include <Library/IoLib.h>
+#include <Library/PrintLib.h>
 #include <Library/TimerLib.h>
 
 /*
@@ -71,13 +72,51 @@ static inline void al_reg_write64(uint64_t *offset, uint64_t val)
 }
 
 /*
- * Logging — map to EDK2 DEBUG macros
+ * Logging — HAL uses C format strings (%s for ASCII), but EDK2 PrintLib
+ * uses %a for ASCII and %s for Unicode.  This wrapper converts %s → %a
+ * in the format string before passing it to DebugPrint().
  */
-#define al_print(...)   DEBUG((DEBUG_INFO, __VA_ARGS__))
-#define al_err(...)     DEBUG((DEBUG_ERROR, __VA_ARGS__))
-#define al_warn(...)    DEBUG((DEBUG_WARN, __VA_ARGS__))
-#define al_info(...)    DEBUG((DEBUG_INFO, __VA_ARGS__))
-#define al_dbg(...)     DEBUG((DEBUG_VERBOSE, __VA_ARGS__))
+static inline void
+AlHalPrint (
+  UINTN        Level,
+  const char   *Fmt,
+  ...
+  )
+{
+  VA_LIST  Args;
+  CHAR8    ConvFmt[256];
+  CHAR8    Buf[512];
+  UINTN    i;
+  UINTN    j;
+
+  if (!DebugPrintLevelEnabled (Level)) {
+    return;
+  }
+
+  /* Convert C "%s" (ASCII string) to EDK2 "%a" (ASCII string) */
+  for (i = 0, j = 0; Fmt[i] != '\0' && j < sizeof (ConvFmt) - 2; ) {
+    if (Fmt[i] == '%' && Fmt[i + 1] == 's') {
+      ConvFmt[j++] = '%';
+      ConvFmt[j++] = 'a';
+      i += 2;
+    } else {
+      ConvFmt[j++] = Fmt[i++];
+    }
+  }
+  ConvFmt[j] = '\0';
+
+  VA_START (Args, Fmt);
+  AsciiVSPrint (Buf, sizeof (Buf), ConvFmt, Args);
+  VA_END (Args);
+
+  DebugPrint (Level, "%a", Buf);
+}
+
+#define al_print(...)   AlHalPrint (DEBUG_INFO,    __VA_ARGS__)
+#define al_err(...)     AlHalPrint (DEBUG_ERROR,   __VA_ARGS__)
+#define al_warn(...)    AlHalPrint (DEBUG_WARN,    __VA_ARGS__)
+#define al_info(...)    AlHalPrint (DEBUG_INFO,    __VA_ARGS__)
+#define al_dbg(...)     AlHalPrint (DEBUG_VERBOSE, __VA_ARGS__)
 
 /*
  * sprintf — stub (unused by ethernet drivers, but referenced by some HAL headers)

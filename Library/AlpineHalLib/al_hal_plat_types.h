@@ -83,18 +83,19 @@ typedef UINTN   size_t;
 #define ETIME   62
 #endif
 
-/* printf format macros from <inttypes.h> — used by HAL debug prints */
+/* printf format macros from <inttypes.h> — used by HAL debug prints.
+ * EDK2 PrintLib uses single 'l' for 64-bit (not 'll' like standard C). */
 #ifndef PRId64
-#define PRId64  "lld"
+#define PRId64  "ld"
 #endif
 #ifndef PRIu64
-#define PRIu64  "llu"
+#define PRIu64  "lu"
 #endif
 #ifndef PRIx64
-#define PRIx64  "llx"
+#define PRIx64  "lx"
 #endif
 #ifndef PRIX64
-#define PRIX64  "llX"
+#define PRIX64  "lX"
 #endif
 #ifndef PRId32
 #define PRId32  "d"

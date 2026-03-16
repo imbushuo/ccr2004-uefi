@@ -50,6 +50,7 @@
   BaseMemoryLib
   DebugLib
   IoLib
+  PrintLib
   TimerLib
 
 [BuildOptions]

@@ -51,8 +51,11 @@
 #define AL_ETH_CDESC_SIZE    16
 #define AL_ETH_DESC_SIZE     16
 
-/* Descriptor ring sizing (same layout as U-Boot) */
-#define AL_ETH_DESCS_PER_Q    (AL_ETH_NUM_RX_DESC + 1)
+/* Descriptor ring sizing — HAL requires power-of-2 queue sizes.
+ * HAL reserves AL_UDMA_MAX_NUM_CDESC_PER_CACHE_LINE (16) slots for
+ * completion padding, so usable = DESCS_PER_Q - 16.  Use 64 to get
+ * 48 usable slots (>= NUM_RX_DESC=32). */
+#define AL_ETH_DESCS_PER_Q    64
 #define AL_ETH_Q_DESCS_SIZE   (AL_ETH_DESCS_PER_Q * AL_ETH_DESC_SIZE)
 
 #define TX_SDESC_OFFSET  (0 * AL_ETH_Q_DESCS_SIZE)
@@ -61,13 +64,13 @@
 #define RX_CDESC_OFFSET  (3 * AL_ETH_Q_DESCS_SIZE)
 #define TOTAL_DESC_SIZE  (4 * AL_ETH_Q_DESCS_SIZE)
 
-/* RGMII status register for link detection */
-#define MAC_GEN_BASE              0x00000
-#define MAC_GEN_RGMII_STAT        0x00064
+/* MAC gen block starts at 0x900 within MAC BAR.
+ * RGMII status register: gen base + 0x1C = 0x91C */
+#define MAC_GEN_RGMII_STAT        0x91C
 #define RGMII_STAT_LINK           BIT4
 
-/* MAC 1G register for promiscuous */
-#define MAC_1G_CMD_CFG            0x00808
+/* MAC 1G cmd_cfg at offset 0x008 from MAC BAR */
+#define MAC_1G_CMD_CFG            0x008
 #define MAC_1G_CMD_PROMIS_EN      BIT4
 
 /* TX completion poll retries (each ~= 1us) */

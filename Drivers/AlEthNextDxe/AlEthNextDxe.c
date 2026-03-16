@@ -169,7 +169,8 @@ AlEthHwInitialize (
   DEBUG ((DEBUG_WARN, "AlEthNext: [3/15] Calling al_eth_adapter_init (rev_id=2, UDMA=0x%lx, EC=0x%lx, MAC=0x%lx)\n",
           Ctx->UdmaBase, Ctx->EcBase, Ctx->MacBase));
 
-  /* 3. Initialize HAL adapter */
+  /* 3. Initialize HAL adapter — zero the struct so re-init after reset starts clean */
+  ZeroMem (&Ctx->HalAdapter, sizeof (Ctx->HalAdapter));
   ZeroMem (&AdapterParams, sizeof (AdapterParams));
   AdapterParams.rev_id           = AL_ETH_REV_ID_2;
   AdapterParams.dev_id           = AL_ETH_DEV_ID_STANDARD;
@@ -186,6 +187,25 @@ AlEthHwInitialize (
   }
 
   DEBUG ((DEBUG_WARN, "AlEthNext: [3/15] al_eth_adapter_init OK\n"));
+
+  /* Reset queues in NORMAL state — clears stale HW head/tail pointers
+   * left by RouterBOOT.  This matches U-Boot's al_eth_halt() sequence:
+   * al_udma_q_reset(tx) + al_udma_q_reset(rx) before re-init. */
+  {
+    struct al_udma_q  *TmpQ;
+
+    al_udma_q_handle_get (&Ctx->HalAdapter.tx_udma, 0, &TmpQ);
+    Err = al_udma_q_reset (TmpQ);
+    if (Err) {
+      DEBUG ((DEBUG_WARN, "AlEthNext: TX queue reset returned %d (continuing)\n", Err));
+    }
+
+    al_udma_q_handle_get (&Ctx->HalAdapter.rx_udma, 0, &TmpQ);
+    Err = al_udma_q_reset (TmpQ);
+    if (Err) {
+      DEBUG ((DEBUG_WARN, "AlEthNext: RX queue reset returned %d (continuing)\n", Err));
+    }
+  }
 
   DEBUG ((DEBUG_WARN, "AlEthNext: [4/15] Configuring TX queue\n"));
 
@@ -204,11 +224,8 @@ AlEthHwInitialize (
     return EFI_DEVICE_ERROR;
   }
 
-  Err = al_eth_queue_enable (&Ctx->HalAdapter, UDMA_TX, 0);
-  if (Err) {
-    DEBUG ((DEBUG_ERROR, "AlEthNext: TX queue_enable failed: %d\n", Err));
-    return EFI_DEVICE_ERROR;
-  }
+  /* al_eth_queue_enable is a stub (-EPERM) in this HAL rev; U-Boot ignores it */
+  al_eth_queue_enable (&Ctx->HalAdapter, UDMA_TX, 0);
 
   DEBUG ((DEBUG_WARN, "AlEthNext: [5/15] Configuring RX queue\n"));
 
@@ -227,11 +244,7 @@ AlEthHwInitialize (
     return EFI_DEVICE_ERROR;
   }
 
-  Err = al_eth_queue_enable (&Ctx->HalAdapter, UDMA_RX, 0);
-  if (Err) {
-    DEBUG ((DEBUG_ERROR, "AlEthNext: RX queue_enable failed: %d\n", Err));
-    return EFI_DEVICE_ERROR;
-  }
+  al_eth_queue_enable (&Ctx->HalAdapter, UDMA_RX, 0);
 
   DEBUG ((DEBUG_WARN, "AlEthNext: [6/15] Getting queue handles\n"));
 
@@ -251,11 +264,11 @@ AlEthHwInitialize (
   /* 8. RX packet limits */
   al_eth_rx_pkt_limit_config (&Ctx->HalAdapter, 30, AL_ETH_MAX_PKT_SIZE);
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: [9/15] Configuring MDIO (Clause 22, 2.5MHz)\n"));
+  DEBUG ((DEBUG_WARN, "AlEthNext: [9/15] Configuring MDIO (Clause 22, 1MHz MDC)\n"));
 
-  /* 9. MDIO configuration — Clause 22, 500MHz ref, ~2.5MHz MDC */
+  /* 9. MDIO configuration — Clause 22, 500MHz ref, 1MHz MDC (per device tree) */
   Err = al_eth_mdio_config (&Ctx->HalAdapter, AL_ETH_MDIO_TYPE_CLAUSE_22,
-                             AL_TRUE, AL_ETH_REF_FREQ_500_MHZ, 2500);
+                             AL_TRUE, AL_ETH_REF_FREQ_500_MHZ, 1000);
   if (Err) {
     DEBUG ((DEBUG_ERROR, "AlEthNext: MDIO config failed: %d\n", Err));
     return EFI_DEVICE_ERROR;
@@ -370,6 +383,22 @@ AlEthHwInitialize (
 
   Ctx->TxBufInFlight = NULL;
 
+  /* Diagnostic: dump UDMA and queue state */
+  DEBUG ((DEBUG_WARN, "AlEthNext: M2S_STATE=0x%08x S2M_STATE=0x%08x\n",
+          MmioRead32 (Ctx->UdmaBase + 0x200),     /* M2S DMA state */
+          MmioRead32 (Ctx->UdmaBase + 0x10200)));  /* S2M DMA state */
+  DEBUG ((DEBUG_WARN, "AlEthNext: M2S_Q0: CFG=0x%08x TDRBP=0x%08x_%08x TDRL=0x%x TCRBP=0x%08x_%08x\n",
+          MmioRead32 (Ctx->UdmaBase + 0x1020),    /* M2S Q0 CFG */
+          MmioRead32 (Ctx->UdmaBase + 0x102C),    /* M2S Q0 TDRBP_HIGH */
+          MmioRead32 (Ctx->UdmaBase + 0x1028),    /* M2S Q0 TDRBP_LOW */
+          MmioRead32 (Ctx->UdmaBase + 0x1030),    /* M2S Q0 TDRL */
+          MmioRead32 (Ctx->UdmaBase + 0x1048),    /* M2S Q0 TCRBP_HIGH */
+          MmioRead32 (Ctx->UdmaBase + 0x1044)));   /* M2S Q0 TCRBP_LOW */
+  DEBUG ((DEBUG_WARN, "AlEthNext: SW desc_phy=0x%lx cdesc_phy=0x%lx size=%u\n",
+          (UINT64)Ctx->TxDmaQ->desc_phy_base,
+          (UINT64)Ctx->TxDmaQ->cdesc_phy_base,
+          Ctx->TxDmaQ->size));
+
   DEBUG ((DEBUG_WARN, "AlEthNext: HW init complete, link %a\n",
           Ctx->SnpMode.MediaPresent ? "UP" : "DOWN"));
 
@@ -384,11 +413,20 @@ AlEthHwShutdown (
 {
   UINT32  Idx;
 
-  /* Stop MAC */
+  /* Shutdown sequence matching U-Boot al_eth_halt():
+   * 1. Stop MAC
+   * 2. Reset queues (pause + RST_Q)
+   * 3. Stop adapter (UDMA disable) */
   al_eth_mac_stop (&Ctx->HalAdapter);
   MicroSecondDelay (10);
 
-  /* Stop adapter (disables UDMA) */
+  if (Ctx->TxDmaQ != NULL) {
+    al_udma_q_reset (Ctx->TxDmaQ);
+  }
+  if (Ctx->RxDmaQ != NULL) {
+    al_udma_q_reset (Ctx->RxDmaQ);
+  }
+
   al_eth_adapter_stop (&Ctx->HalAdapter);
   MicroSecondDelay (100);
 
@@ -434,6 +472,8 @@ AlEthNextSnpStart (
 {
   AL_ETH_NEXT_CONTEXT  *Ctx = AL_ETH_NEXT_FROM_SNP (Snp);
 
+  DEBUG((DEBUG_ERROR, "AlEthNextSnpStart: State=%d\n", Ctx->SnpMode.State));
+
   if (Ctx->SnpMode.State == EfiSimpleNetworkStarted ||
       Ctx->SnpMode.State == EfiSimpleNetworkInitialized) {
     return EFI_ALREADY_STARTED;
@@ -455,6 +495,8 @@ AlEthNextSnpStop (
   )
 {
   AL_ETH_NEXT_CONTEXT  *Ctx = AL_ETH_NEXT_FROM_SNP (Snp);
+
+  DEBUG((DEBUG_ERROR, "AlEthNextSnpStop: State=%d\n", Ctx->SnpMode.State));
 
   if (Ctx->SnpMode.State == EfiSimpleNetworkStopped) {
     return EFI_NOT_STARTED;
@@ -504,6 +546,8 @@ AlEthNextSnpReset (
   AL_ETH_NEXT_CONTEXT  *Ctx = AL_ETH_NEXT_FROM_SNP (Snp);
   EFI_STATUS           Status;
 
+  DEBUG((DEBUG_ERROR, "AlEthNextSnpReset: State=%d\n", Ctx->SnpMode.State));
+
   if (Ctx->SnpMode.State == EfiSimpleNetworkStopped) {
     return EFI_NOT_STARTED;
   }
@@ -530,6 +574,8 @@ AlEthNextSnpShutdown (
   )
 {
   AL_ETH_NEXT_CONTEXT  *Ctx = AL_ETH_NEXT_FROM_SNP (Snp);
+
+  DEBUG((DEBUG_ERROR, "AlEthNextSnpShutdown: State=%d\n", Ctx->SnpMode.State));
 
   if (Ctx->SnpMode.State == EfiSimpleNetworkStopped) {
     return EFI_NOT_STARTED;
@@ -708,14 +754,10 @@ AlEthNextSnpGetStatus (
   }
 
   if (TxBuf != NULL) {
-    *TxBuf = NULL;
-    if (Ctx->TxBufInFlight != NULL) {
-      int CompDescs = al_eth_comp_tx_get (Ctx->TxDmaQ);
-      if (CompDescs > 0) {
-        *TxBuf = Ctx->TxBufInFlight;
-        Ctx->TxBufInFlight = NULL;
-      }
-    }
+    /* TX is synchronous — buffer is already complete by the time we return
+     * from Transmit().  Just hand it back immediately. */
+    *TxBuf = Ctx->TxBufInFlight;
+    Ctx->TxBufInFlight = NULL;
   }
 
   /* Update link status */
@@ -757,11 +799,6 @@ AlEthNextSnpTransmit (
     return EFI_BUFFER_TOO_SMALL;
   }
 
-  /* Previous TX still in flight? */
-  if (Ctx->TxBufInFlight != NULL) {
-    return EFI_NOT_READY;
-  }
-
   /* Build Ethernet header if requested */
   if (HeaderSize != 0) {
     if (HeaderSize != Ctx->SnpMode.MediaHeaderSize) {
@@ -789,14 +826,36 @@ AlEthNextSnpTransmit (
 
   NumDescs = al_eth_tx_pkt_prepare (Ctx->TxDmaQ, &TxPkt);
   if (NumDescs == 0) {
-    DEBUG ((DEBUG_ERROR, "AlEthNext: tx_pkt_prepare failed\n"));
+    DEBUG ((DEBUG_ERROR, "AlEthNext: tx_pkt_prepare failed (avail=%u)\n",
+            al_udma_available_get (Ctx->TxDmaQ)));
     return EFI_DEVICE_ERROR;
   }
 
   /* Kick DMA */
   al_eth_tx_dma_action (Ctx->TxDmaQ, (uint32_t)NumDescs);
 
-  /* Track for GetStatus() recycling */
+  /* Synchronous completion — poll until hardware finishes (like U-Boot).
+   * The CRHP register has multi-second lag on this hardware, so we poll
+   * inline rather than deferring to GetStatus(). */
+  {
+    UINT32  PollCount;
+    int     CompDescs;
+
+    for (PollCount = 0; PollCount < TX_DONE_POLL_RETRIES; PollCount++) {
+      CompDescs = al_eth_comp_tx_get (Ctx->TxDmaQ);
+      if (CompDescs > 0) {
+        break;
+      }
+      MicroSecondDelay (1);
+    }
+
+    if (PollCount >= TX_DONE_POLL_RETRIES) {
+      DEBUG ((DEBUG_ERROR, "AlEthNext: TX completion timeout (%u bytes)\n",
+              (UINT32)BufferSize));
+    }
+  }
+
+  /* Mark buffer as ready for recycling — GetStatus will return it */
   Ctx->TxBufInFlight = Buffer;
   Ctx->Stats.TxGoodFrames++;
 

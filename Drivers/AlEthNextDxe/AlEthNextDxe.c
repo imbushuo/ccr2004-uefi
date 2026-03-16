@@ -166,10 +166,44 @@ AlEthHwInitialize (
                                EFI_MEMORY_UC);
   }
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: [3/15] Calling al_eth_adapter_init (rev_id=2, UDMA=0x%lx, EC=0x%lx, MAC=0x%lx)\n",
+  /* Clean up stale RouterBOOT state — equivalent to U-Boot al_eth_halt().
+   * Initialize a temporary adapter handle to get access to the UDMA queues,
+   * then: mac_stop → q_reset(tx) → q_reset(rx) → adapter_stop. */
+  DEBUG ((DEBUG_WARN, "AlEthNext: [3a/15] Cleaning up stale RouterBOOT state\n"));
+  {
+    struct al_hal_eth_adapter  TmpAdapter;
+    struct al_eth_adapter_params  TmpParams;
+    struct al_udma_q  *TmpQ;
+
+    ZeroMem (&TmpAdapter, sizeof (TmpAdapter));
+    ZeroMem (&TmpParams, sizeof (TmpParams));
+    TmpParams.rev_id         = AL_ETH_REV_ID_2;
+    TmpParams.dev_id         = AL_ETH_DEV_ID_STANDARD;
+    TmpParams.udma_id        = 0;
+    TmpParams.enable_rx_parser = 0;
+    TmpParams.udma_regs_base = (void *)(UINTN)Ctx->UdmaBase;
+    TmpParams.ec_regs_base   = (void *)(UINTN)Ctx->EcBase;
+    TmpParams.mac_regs_base  = (void *)(UINTN)Ctx->MacBase;
+
+    /* adapter_init sets up register pointers and transitions UDMA to NORMAL */
+    al_eth_adapter_init (&TmpAdapter, &TmpParams);
+
+    /* Now perform halt sequence matching U-Boot al_eth_halt() */
+    al_eth_mac_stop (&TmpAdapter);
+    MicroSecondDelay (10);
+
+    al_udma_q_handle_get (&TmpAdapter.tx_udma, 0, &TmpQ);
+    al_udma_q_reset (TmpQ);
+    al_udma_q_handle_get (&TmpAdapter.rx_udma, 0, &TmpQ);
+    al_udma_q_reset (TmpQ);
+
+    al_eth_adapter_stop (&TmpAdapter);
+  }
+
+  DEBUG ((DEBUG_WARN, "AlEthNext: [3b/15] Calling al_eth_adapter_init (rev_id=2, UDMA=0x%lx, EC=0x%lx, MAC=0x%lx)\n",
           Ctx->UdmaBase, Ctx->EcBase, Ctx->MacBase));
 
-  /* 3. Initialize HAL adapter — zero the struct so re-init after reset starts clean */
+  /* 3. Fresh HAL adapter init on clean hardware */
   ZeroMem (&Ctx->HalAdapter, sizeof (Ctx->HalAdapter));
   ZeroMem (&AdapterParams, sizeof (AdapterParams));
   AdapterParams.rev_id           = AL_ETH_REV_ID_2;
@@ -186,26 +220,9 @@ AlEthHwInitialize (
     return EFI_DEVICE_ERROR;
   }
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: [3/15] al_eth_adapter_init OK\n"));
-
-  /* Reset queues in NORMAL state — clears stale HW head/tail pointers
-   * left by RouterBOOT.  This matches U-Boot's al_eth_halt() sequence:
-   * al_udma_q_reset(tx) + al_udma_q_reset(rx) before re-init. */
-  {
-    struct al_udma_q  *TmpQ;
-
-    al_udma_q_handle_get (&Ctx->HalAdapter.tx_udma, 0, &TmpQ);
-    Err = al_udma_q_reset (TmpQ);
-    if (Err) {
-      DEBUG ((DEBUG_WARN, "AlEthNext: TX queue reset returned %d (continuing)\n", Err));
-    }
-
-    al_udma_q_handle_get (&Ctx->HalAdapter.rx_udma, 0, &TmpQ);
-    Err = al_udma_q_reset (TmpQ);
-    if (Err) {
-      DEBUG ((DEBUG_WARN, "AlEthNext: RX queue reset returned %d (continuing)\n", Err));
-    }
-  }
+  DEBUG ((DEBUG_WARN, "AlEthNext: [3/15] al_eth_adapter_init OK (M2S=0x%08x S2M=0x%08x)\n",
+          MmioRead32 (Ctx->UdmaBase + 0x200),
+          MmioRead32 (Ctx->UdmaBase + 0x10200)));
 
   DEBUG ((DEBUG_WARN, "AlEthNext: [4/15] Configuring TX queue\n"));
 
@@ -291,48 +308,11 @@ AlEthHwInitialize (
     (uint8_t *)&Ctx->SnpMode.CurrentAddress
     );
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: [12/15] Configuring EC forwarding tables (unicast + broadcast)\n"));
-
-  /* 12. EC forwarding tables — this is the key fix for RX unicast */
-  {
-    struct al_eth_fwd_mac_table_entry  MacEntry;
-
-    /* Entry 0: match our MAC, forward to UDMA 0 */
-    ZeroMem (&MacEntry, sizeof (MacEntry));
-    CopyMem (MacEntry.addr, &Ctx->SnpMode.CurrentAddress, 6);
-    SetMem (MacEntry.mask, 6, 0xFF);
-    MacEntry.rx_valid  = AL_TRUE;
-    MacEntry.udma_mask = BIT0;
-    MacEntry.qid       = 0;
-    MacEntry.filter    = AL_FALSE;
-    al_eth_fwd_mac_table_set (&Ctx->HalAdapter, 0, &MacEntry);
-
-    /* Entry 1: broadcast */
-    ZeroMem (&MacEntry, sizeof (MacEntry));
-    SetMem (MacEntry.addr, 6, 0xFF);
-    SetMem (MacEntry.mask, 6, 0xFF);
-    MacEntry.rx_valid  = AL_TRUE;
-    MacEntry.udma_mask = BIT0;
-    MacEntry.qid       = 0;
-    MacEntry.filter    = AL_FALSE;
-    al_eth_fwd_mac_table_set (&Ctx->HalAdapter, 1, &MacEntry);
-  }
-
-  /* Default UDMA config: forward unmatched to UDMA 0 */
-  al_eth_fwd_default_udma_config (&Ctx->HalAdapter, 0, BIT0);
-
-  /* Control table default: bypass, route to UDMA from forwarding tables */
-  {
-    struct al_eth_fwd_ctrl_table_entry  CtrlEntry;
-    ZeroMem (&CtrlEntry, sizeof (CtrlEntry));
-    CtrlEntry.prio_sel         = AL_ETH_CTRL_TABLE_PRIO_SEL_VAL_0;
-    CtrlEntry.queue_sel_1      = AL_ETH_CTRL_TABLE_QUEUE_SEL_1_THASH_TABLE;
-    CtrlEntry.queue_sel_2      = AL_ETH_CTRL_TABLE_QUEUE_SEL_2_NO_PRIO;
-    CtrlEntry.udma_sel         = AL_ETH_CTRL_TABLE_UDMA_SEL_MAC_TABLE;
-    CtrlEntry.hdr_split_len_sel = 0;
-    CtrlEntry.filter           = AL_FALSE;
-    al_eth_ctrl_table_def_set (&Ctx->HalAdapter, AL_FALSE, &CtrlEntry);
-  }
+  /* EC forwarding tables are already configured by al_eth_adapter_init():
+   * - EC enabled (gen.en, gen.fifo_en)
+   * - RFW default set to forward to UDMA 0 (rfw_default[0].opt_1 = 1)
+   * - MAC addr stored above via al_eth_mac_addr_store
+   * Matches U-Boot which does not call fwd_mac_table_set or ctrl_table_def_set. */
 
   DEBUG ((DEBUG_WARN, "AlEthNext: [13/15] Filling RX ring (%u buffers)\n", AL_ETH_NUM_RX_DESC));
 
@@ -394,10 +374,22 @@ AlEthHwInitialize (
           MmioRead32 (Ctx->UdmaBase + 0x1030),    /* M2S Q0 TDRL */
           MmioRead32 (Ctx->UdmaBase + 0x1048),    /* M2S Q0 TCRBP_HIGH */
           MmioRead32 (Ctx->UdmaBase + 0x1044)));   /* M2S Q0 TCRBP_LOW */
-  DEBUG ((DEBUG_WARN, "AlEthNext: SW desc_phy=0x%lx cdesc_phy=0x%lx size=%u\n",
+  DEBUG ((DEBUG_WARN, "AlEthNext: TX: desc_phy=0x%lx cdesc_phy=0x%lx size=%u\n",
           (UINT64)Ctx->TxDmaQ->desc_phy_base,
           (UINT64)Ctx->TxDmaQ->cdesc_phy_base,
           Ctx->TxDmaQ->size));
+  DEBUG ((DEBUG_WARN, "AlEthNext: RX: desc_phy=0x%lx cdesc_phy=0x%lx size=%u\n",
+          (UINT64)Ctx->RxDmaQ->desc_phy_base,
+          (UINT64)Ctx->RxDmaQ->cdesc_phy_base,
+          Ctx->RxDmaQ->size));
+  /* S2M Q0 registers: CFG at +0x1020, RDRBP_LOW at +0x1028, RDRL at +0x1030,
+   * RCRBP_LOW at +0x1044, RDRTP at +0x103C (tail pointer, shows posted descs) */
+  DEBUG ((DEBUG_WARN, "AlEthNext: S2M_Q0: CFG=0x%08x RDRBP=0x%08x_%08x RDRL=0x%x RDRTP=0x%x\n",
+          MmioRead32 (Ctx->UdmaBase + 0x11020),
+          MmioRead32 (Ctx->UdmaBase + 0x1102C),
+          MmioRead32 (Ctx->UdmaBase + 0x11028),
+          MmioRead32 (Ctx->UdmaBase + 0x11030),
+          MmioRead32 (Ctx->UdmaBase + 0x1103C)));
 
   DEBUG ((DEBUG_WARN, "AlEthNext: HW init complete, link %a\n",
           Ctx->SnpMode.MediaPresent ? "UP" : "DOWN"));
@@ -754,10 +746,14 @@ AlEthNextSnpGetStatus (
   }
 
   if (TxBuf != NULL) {
-    /* TX is synchronous — buffer is already complete by the time we return
-     * from Transmit().  Just hand it back immediately. */
-    *TxBuf = Ctx->TxBufInFlight;
-    Ctx->TxBufInFlight = NULL;
+    *TxBuf = NULL;
+    if (Ctx->TxBufInFlight != NULL) {
+      int CompDescs = al_eth_comp_tx_get (Ctx->TxDmaQ);
+      if (CompDescs > 0) {
+        *TxBuf = Ctx->TxBufInFlight;
+        Ctx->TxBufInFlight = NULL;
+      }
+    }
   }
 
   /* Update link status */
@@ -799,6 +795,16 @@ AlEthNextSnpTransmit (
     return EFI_BUFFER_TOO_SMALL;
   }
 
+  /* Previous TX still in flight? Try to reclaim it first. */
+  if (Ctx->TxBufInFlight != NULL) {
+    int Comp = al_eth_comp_tx_get (Ctx->TxDmaQ);
+    if (Comp > 0) {
+      Ctx->TxBufInFlight = NULL;
+    } else {
+      return EFI_NOT_READY;
+    }
+  }
+
   /* Build Ethernet header if requested */
   if (HeaderSize != 0) {
     if (HeaderSize != Ctx->SnpMode.MediaHeaderSize) {
@@ -831,31 +837,9 @@ AlEthNextSnpTransmit (
     return EFI_DEVICE_ERROR;
   }
 
-  /* Kick DMA */
+  /* Kick DMA — non-blocking, completion checked via GetStatus() */
   al_eth_tx_dma_action (Ctx->TxDmaQ, (uint32_t)NumDescs);
 
-  /* Synchronous completion — poll until hardware finishes (like U-Boot).
-   * The CRHP register has multi-second lag on this hardware, so we poll
-   * inline rather than deferring to GetStatus(). */
-  {
-    UINT32  PollCount;
-    int     CompDescs;
-
-    for (PollCount = 0; PollCount < TX_DONE_POLL_RETRIES; PollCount++) {
-      CompDescs = al_eth_comp_tx_get (Ctx->TxDmaQ);
-      if (CompDescs > 0) {
-        break;
-      }
-      MicroSecondDelay (1);
-    }
-
-    if (PollCount >= TX_DONE_POLL_RETRIES) {
-      DEBUG ((DEBUG_ERROR, "AlEthNext: TX completion timeout (%u bytes)\n",
-              (UINT32)BufferSize));
-    }
-  }
-
-  /* Mark buffer as ready for recycling — GetStatus will return it */
   Ctx->TxBufInFlight = Buffer;
   Ctx->Stats.TxGoodFrames++;
 
@@ -897,6 +881,14 @@ AlEthNextSnpReceive (
   ZeroMem (&RxPkt, sizeof (RxPkt));
   NumDescs = al_eth_pkt_rx (Ctx->RxDmaQ, &RxPkt);
   if (NumDescs == 0) {
+    STATIC UINT32 RxDbg = 0;
+    if (RxDbg < 3) {
+      uint32_t Crhp = al_reg_read32 (&Ctx->RxDmaQ->q_regs->rings.crhp);
+      DEBUG ((DEBUG_WARN,
+              "AlEthNext: RX poll=0 (next_cdesc=%u comp_ring_id=%u CRHP=0x%08x)\n",
+              Ctx->RxDmaQ->next_cdesc_idx, Ctx->RxDmaQ->comp_ring_id, Crhp));
+      RxDbg++;
+    }
     return EFI_NOT_READY;
   }
 

@@ -1,0 +1,54 @@
+## @file
+#  Alpine Ethernet UEFI SNP Driver — HAL-based.
+#
+#  Uses the Alpine HAL library for full hardware initialization
+#  including EC forwarding tables.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001b
+  BASE_NAME                      = AlEthNextDxe
+  FILE_GUID                      = 8b4c2e3f-d6a1-4b09-9d7f-2e5d9c3b6f84
+  MODULE_TYPE                    = UEFI_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = AlEthNextDxeEntryPoint
+
+[Sources]
+  AlEthNextDxe.c
+  AlEthNextDxe.h
+
+[Packages]
+  MdePkg/MdePkg.dec
+  NetworkPkg/NetworkPkg.dec
+
+[LibraryClasses]
+  AlpineHalLib
+  BaseLib
+  BaseMemoryLib
+  CacheMaintenanceLib
+  DebugLib
+  DevicePathLib
+  IoLib
+  MemoryAllocationLib
+  NetLib
+  TimerLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiLib
+
+[Protocols]
+  gEfiCpuArchProtocolGuid                  ## CONSUMES
+  gEfiSimpleNetworkProtocolGuid            ## BY_START
+  gEfiDevicePathProtocolGuid               ## BY_START
+  gEfiPciIoProtocolGuid                    ## TO_START
+
+[Depex]
+  TRUE
+
+[BuildOptions]
+  GCC:*_*_AARCH64_CC_FLAGS = -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/common -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/eth -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/udma -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/iofic -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/io_fabric -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/eth -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/udma -include al_hal_plat_types.h -include al_hal_plat_services.h

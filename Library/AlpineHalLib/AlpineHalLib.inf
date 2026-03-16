@@ -1,0 +1,60 @@
+## @file
+#  Alpine Hardware Abstraction Layer library for Ethernet.
+#
+#  Wraps the Annapurna Labs alpine_hal source files with UEFI
+#  platform shim headers so the HAL can be compiled as an EDK2 library.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001b
+  BASE_NAME                      = AlpineHalLib
+  FILE_GUID                      = a1b2c3d4-5678-9abc-def0-112233445566
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = AlpineHalLib
+
+[Sources]
+  # Ethernet drivers
+  drivers/eth/al_hal_eth_main.c
+  drivers/eth/al_hal_eth_mac.c
+  drivers/eth/al_hal_eth_mac_v1_v2.c
+  drivers/eth/al_hal_eth_mac_v3.c
+  drivers/eth/al_hal_eth_mac_v4.c
+  drivers/eth/al_hal_eth_mac_internal.c
+  drivers/eth/al_hal_eth_common.c
+  drivers/eth/al_hal_eth_epe.c
+  drivers/eth/al_hal_eth_rfw.c
+  drivers/eth/al_hal_eth_field.c
+
+  # UDMA drivers
+  drivers/udma/al_hal_udma_main.c
+  drivers/udma/al_hal_udma_config.c
+  drivers/udma/al_hal_udma_iofic.c
+
+  # IOFIC driver
+  drivers/iofic/al_hal_iofic.c
+
+  # IO Fabric driver
+  drivers/io_fabric/al_hal_unit_adapter.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  IoLib
+  TimerLib
+
+[BuildOptions]
+  # Include paths for HAL headers — the shim headers in the library root
+  # are found first (al_hal_plat_types.h, al_hal_plat_services.h), then
+  # HAL public and private headers.
+  GCC:*_*_*_CC_FLAGS = -include al_hal_plat_types.h -include al_hal_plat_services.h -Wno-unused-parameter -Wno-sign-compare -Wno-unused-variable -Wno-unused-function -Wno-unused-but-set-variable -Wno-maybe-uninitialized -Wno-parentheses
+  GCC:*_*_AARCH64_CC_FLAGS = -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/common -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/eth -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/udma -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/iofic -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/io_fabric -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/eth -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/udma -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/iofic -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/io_fabric

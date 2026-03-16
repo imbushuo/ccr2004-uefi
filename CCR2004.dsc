@@ -155,6 +155,9 @@
   # File exploration
   FileExplorerLib|MdeModulePkg/Library/FileExplorerLib/FileExplorerLib.inf
 
+  # Alpine HAL (Ethernet hardware abstraction)
+  AlpineHalLib|Platform/MikroTik/CCR2004/Library/AlpineHalLib/AlpineHalLib.inf
+
   # Crypto (for TLS/HTTPS)
   BaseCryptLib|CryptoPkg/Library/BaseCryptLib/BaseCryptLib.inf
   TlsLib|CryptoPkg/Library/TlsLib/TlsLib.inf
@@ -390,9 +393,9 @@
   Platform/MikroTik/CCR2004/Drivers/AlNandDxe/AlNandDxe.inf
 
   #
-  # Ethernet (Annapurna Labs)
+  # Ethernet (Annapurna Labs — HAL-based driver)
   #
-  Platform/MikroTik/CCR2004/Drivers/AlEthDxe/AlEthDxe.inf
+  Platform/MikroTik/CCR2004/Drivers/AlEthNextDxe/AlEthNextDxe.inf
 
   #
   # Security services (required by network stack)

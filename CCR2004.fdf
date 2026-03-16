@@ -112,8 +112,8 @@ WRITE_STATUS       = TRUE
   # NAND
   INF Platform/MikroTik/CCR2004/Drivers/AlNandDxe/AlNandDxe.inf
 
-  # Ethernet
-  INF Platform/MikroTik/CCR2004/Drivers/AlEthDxe/AlEthDxe.inf
+  # Ethernet (HAL-based)
+  INF Platform/MikroTik/CCR2004/Drivers/AlEthNextDxe/AlEthNextDxe.inf
 
   # Security services (RNG + Hash2, required by network stack)
   INF SecurityPkg/RandomNumberGenerator/RngDxe/RngDxe.inf

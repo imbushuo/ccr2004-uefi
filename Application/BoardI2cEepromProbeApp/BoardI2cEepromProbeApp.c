@@ -1,13 +1,9 @@
 /** @file
-  Board I2C EEPROM scanner/dumper for MikroTik CCR2004.
+  Board I2C EEPROM probe application for MikroTik CCR2004.
 
-  Scans both I2C buses (i2c-pld bus 0, i2c-gen bus 1) for EEPROM devices
-  at addresses 0x50-0x57.  For each EEPROM found, dumps its full contents
-  to serial as a hex dump.
-
-  The ST M24C64-F is a 64Kbit (8192 byte) EEPROM with 2-byte (16-bit)
-  internal address.  Compatible devices (24C32, 24C64, 24C128, etc.)
-  use the same protocol.
+  UEFI shell application that scans both I2C buses (i2c-pld bus 0,
+  i2c-gen bus 1) for EEPROM devices at addresses 0x50-0x57.
+  For each EEPROM found, dumps its full contents to the console.
 
   Copyright (c) 2024, MikroTik. All rights reserved.
 
@@ -23,7 +19,7 @@
 #include <Library/DevicePathLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/UefiBootServicesTableLib.h>
-#include <Library/UefiDriverEntryPoint.h>
+#include <Library/UefiApplicationEntryPoint.h>
 #include <Library/PrintLib.h>
 #include <Library/UefiLib.h>
 
@@ -244,7 +240,7 @@ HexDump (
     }
     *p = '\0';
 
-    DEBUG ((DEBUG_ERROR, "%a\n", Line));
+    Print (L"%a\n", Line);
   }
 }
 
@@ -253,7 +249,7 @@ HexDump (
 **/
 EFI_STATUS
 EFIAPI
-BoardI2cEepromDxeEntry (
+BoardI2cEepromProbeAppEntry (
   IN EFI_HANDLE        ImageHandle,
   IN EFI_SYSTEM_TABLE  *SystemTable
   )
@@ -268,14 +264,14 @@ BoardI2cEepromDxeEntry (
   UINT16                   Offset;
   BOOLEAN                  Found;
 
-  DEBUG ((DEBUG_ERROR, "BoardI2cEeprom: Scanning for EEPROM devices...\n"));
+  Print (L"Scanning for EEPROM devices on I2C buses...\n");
 
   Found = FALSE;
 
   for (Bus = 0; Bus < I2C_BUS_COUNT; Bus++) {
     Status = FindI2cMaster (Bus, &I2cMaster);
     if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_ERROR, "BoardI2cEeprom: Bus %u (%a) not available\n", Bus, BusName[Bus]));
+      Print (L"  Bus %u (%a): not available\n", Bus, BusName[Bus]);
       continue;
     }
 
@@ -286,13 +282,11 @@ BoardI2cEepromDxeEntry (
       }
 
       Found = TRUE;
-      DEBUG ((DEBUG_ERROR, "BoardI2cEeprom: Found EEPROM at bus %u (%a) addr 0x%02x\n",
-              Bus, BusName[Bus], Addr));
+      Print (L"  Found EEPROM at bus %u (%a) addr 0x%02x\n", Bus, BusName[Bus], Addr);
 
-      /* Allocate buffer and read full EEPROM */
       Buffer = AllocatePool (EEPROM_SIZE);
       if (Buffer == NULL) {
-        DEBUG ((DEBUG_ERROR, "BoardI2cEeprom: Failed to allocate %u bytes\n", EEPROM_SIZE));
+        Print (L"  ERROR: Failed to allocate %u bytes\n", EEPROM_SIZE);
         continue;
       }
 
@@ -306,15 +300,13 @@ BoardI2cEepromDxeEntry (
 
         Status = EepromRead (I2cMaster, Addr, Offset, &Buffer[Offset], ChunkLen);
         if (EFI_ERROR (Status)) {
-          DEBUG ((DEBUG_ERROR, "BoardI2cEeprom: Read failed at offset 0x%04x: %r\n",
-                  Offset, Status));
+          Print (L"  ERROR: Read failed at offset 0x%04x: %r\n", Offset, Status);
           break;
         }
       }
 
       if (!EFI_ERROR (Status)) {
-        DEBUG ((DEBUG_ERROR, "BoardI2cEeprom: Dump of %u bytes from bus %u addr 0x%02x:\n",
-                EEPROM_SIZE, Bus, Addr));
+        Print (L"  Dump of %u bytes from bus %u addr 0x%02x:\n", EEPROM_SIZE, Bus, Addr);
         HexDump (0, Buffer, EEPROM_SIZE);
       }
 
@@ -323,9 +315,8 @@ BoardI2cEepromDxeEntry (
   }
 
   if (!Found) {
-    DEBUG ((DEBUG_ERROR, "BoardI2cEeprom: No EEPROM found on any bus\n"));
+    Print (L"  No EEPROM found on any bus\n");
   }
 
-  /* This is a one-shot diagnostic driver — nothing to keep running */
   return EFI_SUCCESS;
 }

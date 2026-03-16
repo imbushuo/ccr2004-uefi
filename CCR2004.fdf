@@ -143,6 +143,12 @@ WRITE_STATUS       = TRUE
   INF MdeModulePkg/Application/UiApp/UiApp.inf
   INF MdeModulePkg/Application/BootManagerMenuApp/BootManagerMenuApp.inf
 
+  # FV as filesystem
+  INF MdeModulePkg/Universal/FvSimpleFileSystemDxe/FvSimpleFileSystemDxe.inf
+
+  # Shell applications
+  INF Platform/MikroTik/CCR2004/Application/BoardI2cEepromProbeApp/BoardI2cEepromProbeApp.inf
+
   # UEFI Shell
   INF ShellPkg/Application/Shell/Shell.inf
 

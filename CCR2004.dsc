@@ -370,6 +370,11 @@
   MdeModulePkg/Application/BootManagerMenuApp/BootManagerMenuApp.inf
 
   #
+  # FV as filesystem (allows shell to access FV contents as FSn:)
+  #
+  MdeModulePkg/Universal/FvSimpleFileSystemDxe/FvSimpleFileSystemDxe.inf
+
+  #
   # UEFI Shell
   #
   ShellPkg/Application/Shell/Shell.inf {
@@ -418,9 +423,9 @@
   EmbeddedPkg/Drivers/DtPlatformDxe/DtPlatformDxe.inf
 
   #
-  # Board I2C EEPROM scanner (diagnostic)
+  # Board I2C EEPROM probe (shell application)
   #
-  Platform/MikroTik/CCR2004/Drivers/BoardI2cEepromDxe/BoardI2cEepromDxe.inf
+  Platform/MikroTik/CCR2004/Application/BoardI2cEepromProbeApp/BoardI2cEepromProbeApp.inf
 
   #
   # Ethernet (Annapurna Labs — HAL-based driver)

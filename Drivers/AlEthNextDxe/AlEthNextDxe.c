@@ -220,9 +220,7 @@ AlEthHwInitialize (
     return EFI_DEVICE_ERROR;
   }
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: [3/15] al_eth_adapter_init OK (M2S=0x%08x S2M=0x%08x)\n",
-          MmioRead32 (Ctx->UdmaBase + 0x200),
-          MmioRead32 (Ctx->UdmaBase + 0x10200)));
+  DEBUG ((DEBUG_WARN, "AlEthNext: [3b/15] al_eth_adapter_init OK\n"));
 
   DEBUG ((DEBUG_WARN, "AlEthNext: [4/15] Configuring TX queue\n"));
 
@@ -363,34 +361,6 @@ AlEthHwInitialize (
 
   Ctx->TxBufInFlight = NULL;
 
-  /* Diagnostic: dump UDMA and queue state */
-  DEBUG ((DEBUG_WARN, "AlEthNext: M2S_STATE=0x%08x S2M_STATE=0x%08x\n",
-          MmioRead32 (Ctx->UdmaBase + 0x200),     /* M2S DMA state */
-          MmioRead32 (Ctx->UdmaBase + 0x10200)));  /* S2M DMA state */
-  DEBUG ((DEBUG_WARN, "AlEthNext: M2S_Q0: CFG=0x%08x TDRBP=0x%08x_%08x TDRL=0x%x TCRBP=0x%08x_%08x\n",
-          MmioRead32 (Ctx->UdmaBase + 0x1020),    /* M2S Q0 CFG */
-          MmioRead32 (Ctx->UdmaBase + 0x102C),    /* M2S Q0 TDRBP_HIGH */
-          MmioRead32 (Ctx->UdmaBase + 0x1028),    /* M2S Q0 TDRBP_LOW */
-          MmioRead32 (Ctx->UdmaBase + 0x1030),    /* M2S Q0 TDRL */
-          MmioRead32 (Ctx->UdmaBase + 0x1048),    /* M2S Q0 TCRBP_HIGH */
-          MmioRead32 (Ctx->UdmaBase + 0x1044)));   /* M2S Q0 TCRBP_LOW */
-  DEBUG ((DEBUG_WARN, "AlEthNext: TX: desc_phy=0x%lx cdesc_phy=0x%lx size=%u\n",
-          (UINT64)Ctx->TxDmaQ->desc_phy_base,
-          (UINT64)Ctx->TxDmaQ->cdesc_phy_base,
-          Ctx->TxDmaQ->size));
-  DEBUG ((DEBUG_WARN, "AlEthNext: RX: desc_phy=0x%lx cdesc_phy=0x%lx size=%u\n",
-          (UINT64)Ctx->RxDmaQ->desc_phy_base,
-          (UINT64)Ctx->RxDmaQ->cdesc_phy_base,
-          Ctx->RxDmaQ->size));
-  /* S2M Q0 registers: CFG at +0x1020, RDRBP_LOW at +0x1028, RDRL at +0x1030,
-   * RCRBP_LOW at +0x1044, RDRTP at +0x103C (tail pointer, shows posted descs) */
-  DEBUG ((DEBUG_WARN, "AlEthNext: S2M_Q0: CFG=0x%08x RDRBP=0x%08x_%08x RDRL=0x%x RDRTP=0x%x\n",
-          MmioRead32 (Ctx->UdmaBase + 0x11020),
-          MmioRead32 (Ctx->UdmaBase + 0x1102C),
-          MmioRead32 (Ctx->UdmaBase + 0x11028),
-          MmioRead32 (Ctx->UdmaBase + 0x11030),
-          MmioRead32 (Ctx->UdmaBase + 0x1103C)));
-
   DEBUG ((DEBUG_WARN, "AlEthNext: HW init complete, link %a\n",
           Ctx->SnpMode.MediaPresent ? "UP" : "DOWN"));
 
@@ -464,8 +434,6 @@ AlEthNextSnpStart (
 {
   AL_ETH_NEXT_CONTEXT  *Ctx = AL_ETH_NEXT_FROM_SNP (Snp);
 
-  DEBUG((DEBUG_ERROR, "AlEthNextSnpStart: State=%d\n", Ctx->SnpMode.State));
-
   if (Ctx->SnpMode.State == EfiSimpleNetworkStarted ||
       Ctx->SnpMode.State == EfiSimpleNetworkInitialized) {
     return EFI_ALREADY_STARTED;
@@ -487,8 +455,6 @@ AlEthNextSnpStop (
   )
 {
   AL_ETH_NEXT_CONTEXT  *Ctx = AL_ETH_NEXT_FROM_SNP (Snp);
-
-  DEBUG((DEBUG_ERROR, "AlEthNextSnpStop: State=%d\n", Ctx->SnpMode.State));
 
   if (Ctx->SnpMode.State == EfiSimpleNetworkStopped) {
     return EFI_NOT_STARTED;
@@ -538,8 +504,6 @@ AlEthNextSnpReset (
   AL_ETH_NEXT_CONTEXT  *Ctx = AL_ETH_NEXT_FROM_SNP (Snp);
   EFI_STATUS           Status;
 
-  DEBUG((DEBUG_ERROR, "AlEthNextSnpReset: State=%d\n", Ctx->SnpMode.State));
-
   if (Ctx->SnpMode.State == EfiSimpleNetworkStopped) {
     return EFI_NOT_STARTED;
   }
@@ -566,8 +530,6 @@ AlEthNextSnpShutdown (
   )
 {
   AL_ETH_NEXT_CONTEXT  *Ctx = AL_ETH_NEXT_FROM_SNP (Snp);
-
-  DEBUG((DEBUG_ERROR, "AlEthNextSnpShutdown: State=%d\n", Ctx->SnpMode.State));
 
   if (Ctx->SnpMode.State == EfiSimpleNetworkStopped) {
     return EFI_NOT_STARTED;
@@ -832,8 +794,7 @@ AlEthNextSnpTransmit (
 
   NumDescs = al_eth_tx_pkt_prepare (Ctx->TxDmaQ, &TxPkt);
   if (NumDescs == 0) {
-    DEBUG ((DEBUG_ERROR, "AlEthNext: tx_pkt_prepare failed (avail=%u)\n",
-            al_udma_available_get (Ctx->TxDmaQ)));
+    DEBUG ((DEBUG_ERROR, "AlEthNext: tx_pkt_prepare failed\n"));
     return EFI_DEVICE_ERROR;
   }
 
@@ -881,14 +842,6 @@ AlEthNextSnpReceive (
   ZeroMem (&RxPkt, sizeof (RxPkt));
   NumDescs = al_eth_pkt_rx (Ctx->RxDmaQ, &RxPkt);
   if (NumDescs == 0) {
-    STATIC UINT32 RxDbg = 0;
-    if (RxDbg < 3) {
-      uint32_t Crhp = al_reg_read32 (&Ctx->RxDmaQ->q_regs->rings.crhp);
-      DEBUG ((DEBUG_WARN,
-              "AlEthNext: RX poll=0 (next_cdesc=%u comp_ring_id=%u CRHP=0x%08x)\n",
-              Ctx->RxDmaQ->next_cdesc_idx, Ctx->RxDmaQ->comp_ring_id, Crhp));
-      RxDbg++;
-    }
     return EFI_NOT_READY;
   }
 

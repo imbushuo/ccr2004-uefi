@@ -112,6 +112,12 @@ WRITE_STATUS       = TRUE
   # NAND
   INF Platform/MikroTik/CCR2004/Drivers/AlNandDxe/AlNandDxe.inf
 
+  # Device Tree
+  INF EmbeddedPkg/Drivers/DtPlatformDxe/DtPlatformDxe.inf
+  FILE FREEFORM = 25462CDA-221F-47DF-AC1D-259CFAA4E326 {
+    SECTION RAW = Platform/MikroTik/CCR2004/Resources/DeviceTree/CCR2004-1G-2XS-PCIe.dtb
+  }
+
   # Ethernet (HAL-based)
   INF Platform/MikroTik/CCR2004/Drivers/AlEthNextDxe/AlEthNextDxe.inf
 

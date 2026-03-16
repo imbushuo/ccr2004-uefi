@@ -21,6 +21,7 @@
   BUILD_TARGETS                  = DEBUG|RELEASE|NOOPT
   SKUID_IDENTIFIER               = DEFAULT
   FLASH_DEFINITION               = Platform/MikroTik/CCR2004/CCR2004.fdf
+  PREBUILD                       = bash Platform/MikroTik/CCR2004/build_dtb.sh
   POSTBUILD                      = bash Platform/MikroTik/CCR2004/fd2elf.sh
 
   # Network stack feature flags
@@ -157,6 +158,10 @@
 
   # Alpine HAL (Ethernet hardware abstraction)
   AlpineHalLib|Platform/MikroTik/CCR2004/Library/AlpineHalLib/AlpineHalLib.inf
+
+  # Device Tree
+  FdtLib|MdePkg/Library/BaseFdtLib/BaseFdtLib.inf
+  DtPlatformDtbLoaderLib|EmbeddedPkg/Library/DxeDtPlatformDtbLoaderLibDefault/DxeDtPlatformDtbLoaderLibDefault.inf
 
   # Crypto (for TLS/HTTPS)
   BaseCryptLib|CryptoPkg/Library/BaseCryptLib/BaseCryptLib.inf
@@ -405,6 +410,11 @@
   # NAND (Annapurna Labs + Toshiba BENAND)
   #
   Platform/MikroTik/CCR2004/Drivers/AlNandDxe/AlNandDxe.inf
+
+  #
+  # Device Tree
+  #
+  EmbeddedPkg/Drivers/DtPlatformDxe/DtPlatformDxe.inf
 
   #
   # Ethernet (Annapurna Labs — HAL-based driver)

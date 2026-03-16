@@ -633,48 +633,34 @@ AlEthRxFill (
   // Flush them all so the ring is clean when the network stack starts polling.
   //
   {
-    UINTN  DrainCount = 0;
+    UINTN   DrainCount = 0;
+    UINT32  DmaHead;
 
     MicroSecondDelay (1000);  // give DMA time to process initial descriptors
 
-    for (DrainCount = 0; DrainCount < AL_ETH_NUM_RX_DESC; DrainCount++) {
-      AL_ETH_CDESC  *CDrain;
-      UINT32        Word0;
-
-      CDrain = (AL_ETH_CDESC *)Ctx->RxCompRing + Ctx->RxConsIdx;
-      Word0 = MmioRead32 ((UINTN)CDrain);
-      if (Word0 == 0) {
-        break;
-      }
-
-      // Clear completion
-      MmioWrite32 ((UINTN)CDrain, 0);
-      MmioWrite32 ((UINTN)CDrain + 4, 0);
-      MmioWrite32 ((UINTN)CDrain + 8, 0);
-      MmioWrite32 ((UINTN)CDrain + 12, 0);
-
-      // Re-submit the descriptor
-      {
-        AL_ETH_DESC  *DDesc = (AL_ETH_DESC *)Ctx->RxDescRing + Ctx->RxProdIdx;
-        UINTN  DDa = (UINTN)DDesc;
-        MmioWrite32 (DDa + 0, (AL_ETH_RX_BUF_SIZE & AL_S2M_DESC_LEN_MASK) |
-                               AL_S2M_DESC_RING_ID(Ctx->RxDescRingId));
-        MmioWrite32 (DDa + 4, 0);
-        MmioWrite32 (DDa + 8, (UINT32)(Ctx->RxBuffersPhys[Ctx->RxProdIdx] & 0xFFFFFFFF));
-        MmioWrite32 (DDa + 12, (UINT32)(Ctx->RxBuffersPhys[Ctx->RxProdIdx] >> 32));
-      }
+    DmaHead = UdmaRead32 (Ctx, S2M_Q0_RCRHP) & (AL_ETH_NUM_RX_DESC - 1);
+    while (DmaHead != Ctx->RxConsIdx && DrainCount < AL_ETH_NUM_RX_DESC) {
+      // Re-submit the consumed descriptor
+      AL_ETH_DESC  *DDesc = (AL_ETH_DESC *)Ctx->RxDescRing + Ctx->RxProdIdx;
+      UINTN  DDa = (UINTN)DDesc;
+      MmioWrite32 (DDa + 0, (AL_ETH_RX_BUF_SIZE & AL_S2M_DESC_LEN_MASK) |
+                             AL_S2M_DESC_RING_ID(Ctx->RxDescRingId));
+      MmioWrite32 (DDa + 4, 0);
+      MmioWrite32 (DDa + 8, (UINT32)(Ctx->RxBuffersPhys[Ctx->RxProdIdx] & 0xFFFFFFFF));
+      MmioWrite32 (DDa + 12, (UINT32)(Ctx->RxBuffersPhys[Ctx->RxProdIdx] >> 32));
       MemoryFence ();
       UdmaWrite32 (Ctx, S2M_Q0_RDRTP_INC, 1);
 
       Ctx->RxConsIdx = (Ctx->RxConsIdx + 1) % AL_ETH_NUM_RX_DESC;
-    
       Ctx->RxProdIdx = (Ctx->RxProdIdx + 1) % AL_ETH_NUM_RX_DESC;
       if (Ctx->RxProdIdx == 0) {
         Ctx->RxDescRingId = (Ctx->RxDescRingId + 1) & AL_UDMA_RING_ID_MASK;
       }
+      DrainCount++;
     }
 
-    DEBUG ((DEBUG_INFO, "AlEthDxe: RxFill: drained %u stale completions\n", DrainCount));
+    DEBUG ((DEBUG_INFO, "AlEthDxe: RxFill: drained %u stale completions, consIdx=%d\n",
+            DrainCount, Ctx->RxConsIdx));
   }
 
   return EFI_SUCCESS;
@@ -1431,23 +1417,13 @@ AlEthSnpGetStatus (
   if (TxBuf != NULL) {
     *TxBuf = NULL;
     if (Ctx->TxBufInFlight != NULL) {
-      AL_ETH_CDESC  *CDesc;
-      UINT32        CdescWord0;
-
-      CDesc = (AL_ETH_CDESC *)Ctx->TxCompRing + Ctx->TxConsIdx;
-      CdescWord0 = MmioRead32 ((UINTN)CDesc);
-
-      if (CdescWord0 != 0) {
-        //
-        // Valid completion — return the buffer and clear slot
-        //
-        *TxBuf = Ctx->TxBufInFlight;
-        Ctx->TxBufInFlight = NULL;
-
-        MmioWrite32 ((UINTN)CDesc, 0);
-        MmioWrite32 ((UINTN)CDesc + 4, 0);
-
-        Ctx->TxConsIdx = (Ctx->TxConsIdx + 1) % AL_ETH_NUM_TX_DESC;
+      {
+        UINT32  DmaTxHead = UdmaRead32 (Ctx, M2S_Q0_TCRHP) & (AL_ETH_NUM_TX_DESC - 1);
+        if (DmaTxHead != Ctx->TxConsIdx) {
+          *TxBuf = Ctx->TxBufInFlight;
+          Ctx->TxBufInFlight = NULL;
+          Ctx->TxConsIdx = (Ctx->TxConsIdx + 1) % AL_ETH_NUM_TX_DESC;
+        }
       }
     }
   }
@@ -1612,17 +1588,19 @@ AlEthSnpReceive (
   }
 
   //
-  // Check for RX completions — detect by non-zero content.
-  // Ring_id tracking is unreliable with stale UDMA state from RouterBOOT,
-  // so we use a simpler approach: ZeroMem'd ring + non-zero = new completion.
+  // Check for RX completions using hardware RCRHP register.
+  // RCRHP[4:0] is the DMA's completion write pointer — if it differs
+  // from our consumer index, there are completions to process.
   //
+  {
+    UINT32  DmaCompHead = UdmaRead32 (Ctx, S2M_Q0_RCRHP) & (AL_ETH_NUM_RX_DESC - 1);
+    if (DmaCompHead == Ctx->RxConsIdx) {
+      return EFI_NOT_READY;
+    }
+  }
+
   CDesc = (AL_ETH_CDESC *)Ctx->RxCompRing + Ctx->RxConsIdx;
   CdescWord0 = MmioRead32 ((UINTN)CDesc);
-
-
-  if (CdescWord0 == 0) {
-    return EFI_NOT_READY;
-  }
 
   //
   // Valid completion — check for errors
@@ -1683,14 +1661,6 @@ AlEthSnpReceive (
   }
 
   //
-  // Clear completion so we can detect next one by non-zero
-  //
-  MmioWrite32 ((UINTN)CDesc, 0);
-  MmioWrite32 ((UINTN)CDesc + 4, 0);
-  MmioWrite32 ((UINTN)CDesc + 8, 0);
-  MmioWrite32 ((UINTN)CDesc + 12, 0);
-
-  //
   // Re-submit RX buffer: desc[ProdIdx] → buffer[ProdIdx] maintains invariant
   //
   Desc = (AL_ETH_DESC *)Ctx->RxDescRing + Ctx->RxProdIdx;
@@ -1721,14 +1691,6 @@ AlEthSnpReceive (
   return EFI_SUCCESS;
 
 DropAndReSubmit:
-  //
-  // Clear completion
-  //
-  MmioWrite32 ((UINTN)CDesc, 0);
-  MmioWrite32 ((UINTN)CDesc + 4, 0);
-  MmioWrite32 ((UINTN)CDesc + 8, 0);
-  MmioWrite32 ((UINTN)CDesc + 12, 0);
-
   Desc = (AL_ETH_DESC *)Ctx->RxDescRing + Ctx->RxProdIdx;
   {
     UINTN  Da = (UINTN)Desc;
@@ -1765,8 +1727,6 @@ AlEthWaitForPacketNotify (
   )
 {
   AL_ETH_CONTEXT  *Ctx;
-  AL_ETH_CDESC    *CDesc;
-  UINT32          CdescWord0;
 
   Ctx = (AL_ETH_CONTEXT *)Context;
 
@@ -1774,11 +1734,11 @@ AlEthWaitForPacketNotify (
     return;
   }
 
-  CDesc = (AL_ETH_CDESC *)Ctx->RxCompRing + Ctx->RxConsIdx;
-  CdescWord0 = MmioRead32 ((UINTN)CDesc);
-
-  if (CdescWord0 != 0) {
-    gBS->SignalEvent (Event);
+  {
+    UINT32  DmaCompHead = UdmaRead32 (Ctx, S2M_Q0_RCRHP) & (AL_ETH_NUM_RX_DESC - 1);
+    if (DmaCompHead != Ctx->RxConsIdx) {
+      gBS->SignalEvent (Event);
+    }
   }
 }
 

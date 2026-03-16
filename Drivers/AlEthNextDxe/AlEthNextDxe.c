@@ -69,14 +69,14 @@ AlEthPhyInit (
     if (Err) continue;
     if ((PhyId1 != 0xFFFF) && (PhyId2 != 0xFFFF) && (PhyId1 != 0)) {
       Ctx->PhyAddr = Addr;
-      DEBUG ((DEBUG_WARN, "AlEthNext: PHY found at MDIO addr %u (ID %04x:%04x)\n",
+      DEBUG ((DEBUG_INFO, "AlEthNext: PHY found at MDIO addr %u (ID %04x:%04x)\n",
               Addr, PhyId1, PhyId2));
       break;
     }
   }
 
   if (Ctx->PhyAddr == 0xFF) {
-    DEBUG ((DEBUG_WARN, "AlEthNext: No PHY found on MDIO bus\n"));
+    DEBUG ((DEBUG_INFO, "AlEthNext: No PHY found on MDIO bus\n"));
     return EFI_NOT_FOUND;
   }
 
@@ -121,7 +121,7 @@ AlEthHwInitialize (
   struct al_udma_q_params       TxQParams;
   struct al_udma_q_params       RxQParams;
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: [1/15] Allocating DMA descriptor rings\n"));
+  DEBUG ((DEBUG_INFO, "AlEthNext: [1/15] Allocating DMA descriptor rings\n"));
 
   /* 1. Allocate DMA descriptor rings (UC, below 4GB) */
   {
@@ -143,7 +143,7 @@ AlEthHwInitialize (
     mCpu->SetMemoryAttributes (mCpu, DescPages, EFI_PAGES_TO_SIZE (NumPages), EFI_MEMORY_UC);
   }
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: [2/15] Allocating %u RX buffers (%u bytes each)\n",
+  DEBUG ((DEBUG_INFO, "AlEthNext: [2/15] Allocating %u RX buffers (%u bytes each)\n",
           AL_ETH_NUM_RX_DESC, AL_ETH_RX_BUF_SIZE));
 
   /* 2. Allocate RX buffers (UC, below 4GB) */
@@ -169,7 +169,7 @@ AlEthHwInitialize (
   /* Clean up stale RouterBOOT state — equivalent to U-Boot al_eth_halt().
    * Initialize a temporary adapter handle to get access to the UDMA queues,
    * then: mac_stop → q_reset(tx) → q_reset(rx) → adapter_stop. */
-  DEBUG ((DEBUG_WARN, "AlEthNext: [3a/15] Cleaning up stale RouterBOOT state\n"));
+  DEBUG ((DEBUG_INFO, "AlEthNext: [3a/15] Cleaning up stale RouterBOOT state\n"));
   {
     struct al_hal_eth_adapter  TmpAdapter;
     struct al_eth_adapter_params  TmpParams;
@@ -200,7 +200,7 @@ AlEthHwInitialize (
     al_eth_adapter_stop (&TmpAdapter);
   }
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: [3b/15] Calling al_eth_adapter_init (rev_id=2, UDMA=0x%lx, EC=0x%lx, MAC=0x%lx)\n",
+  DEBUG ((DEBUG_INFO, "AlEthNext: [3b/15] Calling al_eth_adapter_init (rev_id=2, UDMA=0x%lx, EC=0x%lx, MAC=0x%lx)\n",
           Ctx->UdmaBase, Ctx->EcBase, Ctx->MacBase));
 
   /* 3. Fresh HAL adapter init on clean hardware */
@@ -220,9 +220,9 @@ AlEthHwInitialize (
     return EFI_DEVICE_ERROR;
   }
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: [3b/15] al_eth_adapter_init OK\n"));
+  DEBUG ((DEBUG_INFO, "AlEthNext: [3b/15] al_eth_adapter_init OK\n"));
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: [4/15] Configuring TX queue\n"));
+  DEBUG ((DEBUG_INFO, "AlEthNext: [4/15] Configuring TX queue\n"));
 
   /* 4. Configure TX queue */
   ZeroMem (&TxQParams, sizeof (TxQParams));
@@ -242,7 +242,7 @@ AlEthHwInitialize (
   /* al_eth_queue_enable is a stub (-EPERM) in this HAL rev; U-Boot ignores it */
   al_eth_queue_enable (&Ctx->HalAdapter, UDMA_TX, 0);
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: [5/15] Configuring RX queue\n"));
+  DEBUG ((DEBUG_INFO, "AlEthNext: [5/15] Configuring RX queue\n"));
 
   /* 5. Configure RX queue */
   ZeroMem (&RxQParams, sizeof (RxQParams));
@@ -261,13 +261,13 @@ AlEthHwInitialize (
 
   al_eth_queue_enable (&Ctx->HalAdapter, UDMA_RX, 0);
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: [6/15] Getting queue handles\n"));
+  DEBUG ((DEBUG_INFO, "AlEthNext: [6/15] Getting queue handles\n"));
 
   /* 6. Get queue handles */
   al_udma_q_handle_get (&Ctx->HalAdapter.tx_udma, 0, &Ctx->TxDmaQ);
   al_udma_q_handle_get (&Ctx->HalAdapter.rx_udma, 0, &Ctx->RxDmaQ);
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: [7/15] Configuring MAC (RGMII)\n"));
+  DEBUG ((DEBUG_INFO, "AlEthNext: [7/15] Configuring MAC (RGMII)\n"));
 
   /* 7. MAC configuration (RGMII for CCR2004's 1G port) */
   Err = al_eth_mac_config (&Ctx->HalAdapter, AL_ETH_MAC_MODE_RGMII);
@@ -279,7 +279,7 @@ AlEthHwInitialize (
   /* 8. RX packet limits */
   al_eth_rx_pkt_limit_config (&Ctx->HalAdapter, 30, AL_ETH_MAX_PKT_SIZE);
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: [9/15] Configuring MDIO (Clause 22, 1MHz MDC)\n"));
+  DEBUG ((DEBUG_INFO, "AlEthNext: [9/15] Configuring MDIO (Clause 22, 1MHz MDC)\n"));
 
   /* 9. MDIO configuration — Clause 22, 500MHz ref, 1MHz MDC (per device tree) */
   Err = al_eth_mdio_config (&Ctx->HalAdapter, AL_ETH_MDIO_TYPE_CLAUSE_22,
@@ -289,15 +289,15 @@ AlEthHwInitialize (
     return EFI_DEVICE_ERROR;
   }
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: [10/15] PHY init (MDIO scan, reset, autoneg)\n"));
+  DEBUG ((DEBUG_INFO, "AlEthNext: [10/15] PHY init (MDIO scan, reset, autoneg)\n"));
 
   /* 10. PHY init: scan, reset, autoneg */
   Status = AlEthPhyInit (Ctx);
   if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_WARN, "AlEthNext: PHY init failed: %r (continuing without PHY)\n", Status));
+    DEBUG ((DEBUG_INFO, "AlEthNext: PHY init failed: %r (continuing without PHY)\n", Status));
   }
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: [11/15] Storing MAC address in EC\n"));
+  DEBUG ((DEBUG_INFO, "AlEthNext: [11/15] Storing MAC address in EC\n"));
 
   /* 11. Store MAC address in EC */
   al_eth_mac_addr_store (
@@ -312,7 +312,7 @@ AlEthHwInitialize (
    * - MAC addr stored above via al_eth_mac_addr_store
    * Matches U-Boot which does not call fwd_mac_table_set or ctrl_table_def_set. */
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: [13/15] Filling RX ring (%u buffers)\n", AL_ETH_NUM_RX_DESC));
+  DEBUG ((DEBUG_INFO, "AlEthNext: [13/15] Filling RX ring (%u buffers)\n", AL_ETH_NUM_RX_DESC));
 
   /* 13. Fill RX ring */
   for (Idx = 0; Idx < AL_ETH_NUM_RX_DESC; Idx++) {
@@ -330,38 +330,20 @@ AlEthHwInitialize (
   Ctx->RxBufTailIdx = 0;
   al_eth_rx_buffer_action (Ctx->RxDmaQ, AL_ETH_NUM_RX_DESC);
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: [14/15] Starting MAC\n"));
+  DEBUG ((DEBUG_INFO, "AlEthNext: [14/15] Starting MAC\n"));
 
   /* 14. Start MAC */
   al_eth_mac_start (&Ctx->HalAdapter);
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: [15/15] Waiting for PHY link (5s timeout)...\n"));
-
-  /* 15. Wait for PHY link (5 second timeout) */
+  /* 15. Check link — don't block, GetStatus() polls MediaPresent continuously */
   {
-    UINT32  Timeout;
-    UINT32  RgmiiStat;
-
-    for (Timeout = 0; Timeout < 5000; Timeout++) {
-      RgmiiStat = MacRead32 (Ctx, MAC_GEN_RGMII_STAT);
-      if (RgmiiStat & RGMII_STAT_LINK) {
-        Ctx->SnpMode.MediaPresent = TRUE;
-        DEBUG ((DEBUG_WARN, "AlEthNext: Link up after %ums (RGMII_STAT=0x%08x)\n",
-                Timeout, RgmiiStat));
-        break;
-      }
-      MicroSecondDelay (1000);
-    }
-
-    if (Timeout >= 5000) {
-      DEBUG ((DEBUG_WARN, "AlEthNext: Link timeout (RGMII_STAT=0x%08x)\n",
-              MacRead32 (Ctx, MAC_GEN_RGMII_STAT)));
-    }
+    UINT32  RgmiiStat = MacRead32 (Ctx, MAC_GEN_RGMII_STAT);
+    Ctx->SnpMode.MediaPresent = ((RgmiiStat & RGMII_STAT_LINK) != 0);
   }
 
   Ctx->TxBufInFlight = NULL;
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: HW init complete, link %a\n",
+  DEBUG ((DEBUG_INFO, "AlEthNext: HW init complete, link %a\n",
           Ctx->SnpMode.MediaPresent ? "UP" : "DOWN"));
 
   return EFI_SUCCESS;
@@ -847,13 +829,13 @@ AlEthNextSnpReceive (
 
   /* Check for errors */
   if (RxPkt.flags & (AL_ETH_RX_ERROR | AL_UDMA_CDESC_ERROR)) {
-    DEBUG ((DEBUG_WARN, "AlEthNext: RX error flags=0x%x\n", RxPkt.flags));
+    DEBUG ((DEBUG_INFO, "AlEthNext: RX error flags=0x%x\n", RxPkt.flags));
     goto ReSubmit;
   }
 
   PktLen = RxPkt.bufs[0].len;
   if (PktLen < 14 || PktLen > AL_ETH_RX_BUF_SIZE) {
-    DEBUG ((DEBUG_WARN, "AlEthNext: RX bad len=%u\n", PktLen));
+    DEBUG ((DEBUG_INFO, "AlEthNext: RX bad len=%u\n", PktLen));
     goto ReSubmit;
   }
 
@@ -1061,7 +1043,7 @@ AlEthNextStart (
   PciIo->Pci.Read (PciIo, EfiPciIoWidthUint32, PCI_BASE_ADDRESSREG_OFFSET + AL_ETH_BAR_EC * 4, 1, &BarLo);
   Ctx->EcBase = (BarLo != 0) ? (UINTN)(BarLo & 0xFFFFFFF0) : 0;
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: BARs: UDMA=0x%lx MAC=0x%lx EC=0x%lx\n",
+  DEBUG ((DEBUG_INFO, "AlEthNext: BARs: UDMA=0x%lx MAC=0x%lx EC=0x%lx\n",
           Ctx->UdmaBase, Ctx->MacBase, Ctx->EcBase));
 
   if (Ctx->EcBase == 0) {
@@ -1094,11 +1076,11 @@ AlEthNextStart (
       MacAddr.Addr[3] = (UINT8)(Tsc >> 24);
       MacAddr.Addr[4] = (UINT8)(Tsc >> 32);
       MacAddr.Addr[5] = (UINT8)(Tsc >> 40);
-      DEBUG ((DEBUG_WARN, "AlEthNext: No MAC in HW, generated random\n"));
+      DEBUG ((DEBUG_INFO, "AlEthNext: No MAC in HW, generated random\n"));
     }
   }
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: MAC = %02x:%02x:%02x:%02x:%02x:%02x\n",
+  DEBUG ((DEBUG_INFO, "AlEthNext: MAC = %02x:%02x:%02x:%02x:%02x:%02x\n",
           MacAddr.Addr[0], MacAddr.Addr[1], MacAddr.Addr[2],
           MacAddr.Addr[3], MacAddr.Addr[4], MacAddr.Addr[5]));
 
@@ -1219,7 +1201,7 @@ AlEthNextStart (
          EFI_OPEN_PROTOCOL_BY_CHILD_CONTROLLER
          );
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: Driver binding started, SNP installed\n"));
+  DEBUG ((DEBUG_INFO, "AlEthNext: Driver binding started, SNP installed\n"));
   return EFI_SUCCESS;
 
 FreeDevicePath:
@@ -1319,7 +1301,7 @@ AlEthNextDxeEntryPoint (
 {
   EFI_STATUS  Status;
 
-  DEBUG ((DEBUG_WARN, "AlEthNext: Driver loaded (HAL-based Alpine Ethernet)\n"));
+  DEBUG ((DEBUG_INFO, "AlEthNext: Driver loaded (HAL-based Alpine Ethernet)\n"));
 
   /* Locate CPU Architecture Protocol (for SetMemoryAttributes) */
   Status = gBS->LocateProtocol (&gEfiCpuArchProtocolGuid, NULL, (VOID **)&mCpu);

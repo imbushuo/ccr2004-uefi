@@ -235,7 +235,7 @@
 
   # Debug
   gEfiMdePkgTokenSpaceGuid.PcdDebugPropertyMask|0x07
-  gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x8000FFCF
+  gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x80000002
 
   # Firmware version string
   gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString|L"CCR2004 0.1"

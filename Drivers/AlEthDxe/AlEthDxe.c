@@ -412,26 +412,9 @@ AlEthUdmaInit (
   MicroSecondDelay (1000);
 
   //
-  // Step 5: Read stale HP values and adapt. These are permanent and
-  // cannot be reset on this hardware.
-  // - RxDescRingId from RDRHP: so our descriptors match what the DMA expects
-  // - RxConsIdx from RCRHP: start reading completions where DMA writes them
-  // - RxCompDescOffset: comp[N] → desc[N - offset] → buffer[N - offset]
+  // HP values are read AFTER the second SW_CTRL_RST_Q in AlEthQueueConfig,
+  // not here — that reset changes HP state.
   //
-  {
-    UINT32  StaleRdrhp = UdmaRead32 (Ctx, S2M_Q0_RDRHP);
-    UINT32  StaleRcrhp = UdmaRead32 (Ctx, S2M_Q0_RCRHP);
-    UINT32  DescIdx = StaleRdrhp & 0x1F;
-    UINT32  CompIdx = StaleRcrhp & 0x1F;
-
-    Ctx->RxDescRingId = (StaleRdrhp >> 30) & AL_UDMA_RING_ID_MASK;
-    Ctx->RxConsIdx = CompIdx;
-    Ctx->RxProdIdx = 0;
-    Ctx->RxCompDescOffset = (CompIdx - DescIdx + AL_ETH_NUM_RX_DESC) % AL_ETH_NUM_RX_DESC;
-
-    DEBUG ((DEBUG_INFO, "AlEthDxe: Stale HP: RDRHP=0x%08x RCRHP=0x%08x → descRid=%d consIdx=%d offset=%d\n",
-            StaleRdrhp, StaleRcrhp, Ctx->RxDescRingId, Ctx->RxConsIdx, Ctx->RxCompDescOffset));
-  }
 }
 
 // ============================================================================
@@ -447,8 +430,34 @@ AlEthQueueConfig (
   UINT32  Val;
 
   //
+  // Queue reset in NORMAL state — required for the DMA to properly accept
+  // new ring base pointers.
+  //
+  UdmaWrite32 (Ctx, M2S_Q0_SW_CTRL, UDMA_SW_CTRL_RST_Q);
+  UdmaWrite32 (Ctx, S2M_Q0_SW_CTRL, UDMA_SW_CTRL_RST_Q);
+  MicroSecondDelay (10);
+
+  //
+  // Read HP values NOW — after the final queue reset. These are the actual
+  // values the DMA will use. Reading before this reset gave wrong values.
+  //
+  {
+    UINT32  Rdrhp = UdmaRead32 (Ctx, S2M_Q0_RDRHP);
+    UINT32  Rcrhp = UdmaRead32 (Ctx, S2M_Q0_RCRHP);
+    UINT32  DescIdx = Rdrhp & 0x1F;
+    UINT32  CompIdx = Rcrhp & 0x1F;
+
+    Ctx->RxDescRingId = (Rdrhp >> 30) & AL_UDMA_RING_ID_MASK;
+    Ctx->RxConsIdx = CompIdx;
+    Ctx->RxProdIdx = 0;
+    Ctx->RxCompDescOffset = (CompIdx - DescIdx + AL_ETH_NUM_RX_DESC) % AL_ETH_NUM_RX_DESC;
+
+    DEBUG ((DEBUG_INFO, "AlEthDxe: Post-reset HP: RDRHP=0x%08x RCRHP=0x%08x → descRid=%d consIdx=%d offset=%d\n",
+            Rdrhp, Rcrhp, Ctx->RxDescRingId, Ctx->RxConsIdx, Ctx->RxCompDescOffset));
+  }
+
+  //
   // TX Queue 0: al_mod_udma_q_config → clear INTERNAL_PAUSE_DMB in rate limiter
-  // (Queue was already reset in AlEthUdmaInit — no duplicate reset here)
   //
   Val = UdmaRead32 (Ctx, M2S_Q0_RLIMIT_MASK);
   Val &= ~UDMA_RLIMIT_MASK_INTERNAL_PAUSE_DMB;
@@ -1636,11 +1645,19 @@ AlEthSnpReceive (
   CopyMem (Buffer, PktData, PktLen);
   *BufferSize = PktLen;
 
-  DEBUG ((DEBUG_VERBOSE, "AlEthDxe: RX[%d] buf=%d len=%u dst=%02x:%02x:%02x:%02x:%02x:%02x src=%02x:%02x:%02x:%02x:%02x:%02x proto=0x%02x%02x\n",
-          Ctx->RxConsIdx, Ctx->RxProdIdx, PktLen,
-          PktData[0], PktData[1], PktData[2], PktData[3], PktData[4], PktData[5],
-          PktData[6], PktData[7], PktData[8], PktData[9], PktData[10], PktData[11],
-          PktData[12], PktData[13]));
+  {
+    UINT32 Ci = Ctx->RxConsIdx;
+    UINT8  *B0 = (UINT8 *)Ctx->RxBuffers[Ci];
+    UINT8  *Bm1 = (UINT8 *)Ctx->RxBuffers[(Ci + AL_ETH_NUM_RX_DESC - 1) % AL_ETH_NUM_RX_DESC];
+    UINT8  *Bp1 = (UINT8 *)Ctx->RxBuffers[(Ci + 1) % AL_ETH_NUM_RX_DESC];
+    DEBUG ((DEBUG_INFO, "AlEthDxe: RX ci=%d len=%u used=buf[%d] proto=%02x%02x | buf[ci]=%02x%02x buf[ci-1]=%02x%02x buf[ci+1]=%02x%02x\n",
+            Ci, PktLen,
+            (Ci + AL_ETH_NUM_RX_DESC - Ctx->RxCompDescOffset) % AL_ETH_NUM_RX_DESC,
+            PktData[12], PktData[13],
+            B0[12], B0[13],
+            Bm1[12], Bm1[13],
+            Bp1[12], Bp1[13]));
+  }
 
   if (HeaderSize != NULL) {
     *HeaderSize = Ctx->SnpMode.MediaHeaderSize;

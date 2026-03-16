@@ -273,7 +273,10 @@
 #
 ################################################################################
 
-[BuildOptions]
+[BuildOptions.common.EDKII.DXE_CORE,BuildOptions.common.EDKII.DXE_DRIVER,BuildOptions.common.EDKII.UEFI_DRIVER,BuildOptions.common.EDKII.UEFI_APPLICATION]
+  *_*_*_DLINK_FLAGS = -z common-page-size=0x1000
+
+[BuildOptions.common.EDKII.DXE_RUNTIME_DRIVER]
   # AArch64 with 64KB pages requires 0x10000 section alignment for DXE memory
   # protection (W^X).  The GCC toolchain defaults to -z common-page-size=0x1000.
   GCC:*_*_AARCH64_DLINK_FLAGS = -z common-page-size=0x10000

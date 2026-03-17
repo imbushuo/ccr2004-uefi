@@ -14,7 +14,7 @@
 [Defines]
   PLATFORM_NAME                  = CCR2004
   PLATFORM_GUID                  = b3a4c5d6-7890-1234-abcd-ef5678901234
-  PLATFORM_VERSION               = 0.2
+  PLATFORM_VERSION               = 2026.317.308
   DSC_SPECIFICATION              = 0x00010005
   OUTPUT_DIRECTORY               = Build/CCR2004
   SUPPORTED_ARCHITECTURES        = AARCH64
@@ -249,7 +249,7 @@
   gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x80000002
 
   # Firmware version string
-  gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString|L"CCR2004 0.1"
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString|L"CCR2004 2026.317.308"
 
   # Emulated variable store (RAM-backed, no flash)
   # Sizes increased for TLS CA certificate storage

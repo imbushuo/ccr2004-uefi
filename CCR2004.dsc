@@ -14,7 +14,7 @@
 [Defines]
   PLATFORM_NAME                  = CCR2004
   PLATFORM_GUID                  = b3a4c5d6-7890-1234-abcd-ef5678901234
-  PLATFORM_VERSION               = 0.1
+  PLATFORM_VERSION               = 0.2
   DSC_SPECIFICATION              = 0x00010005
   OUTPUT_DIRECTORY               = Build/CCR2004
   SUPPORTED_ARCHITECTURES        = AARCH64
@@ -155,6 +155,9 @@
 
   # File exploration
   FileExplorerLib|MdeModulePkg/Library/FileExplorerLib/FileExplorerLib.inf
+
+  # HTTP (for Shell http command)
+  HttpLib|NetworkPkg/Library/DxeHttpLib/DxeHttpLib.inf
 
   # Alpine HAL (Ethernet hardware abstraction)
   AlpineHalLib|Platform/MikroTik/CCR2004/Library/AlpineHalLib/AlpineHalLib.inf
@@ -353,6 +356,13 @@
   MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe.inf
 
   #
+  # Disk I/O, Partition (MBR/GPT), and FAT filesystem
+  #
+  MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf
+  MdeModulePkg/Universal/Disk/PartitionDxe/PartitionDxe.inf
+  FatPkg/EnhancedFatDxe/Fat.inf
+
+  #
   # Form Browser (required by UiApp)
   #
   MdeModulePkg/Universal/SetupBrowserDxe/SetupBrowserDxe.inf
@@ -390,6 +400,12 @@
       NULL|ShellPkg/Library/UefiShellNetwork1CommandsLib/UefiShellNetwork1CommandsLib.inf
       NULL|ShellPkg/Library/UefiShellNetwork2CommandsLib/UefiShellNetwork2CommandsLib.inf
   }
+
+  #
+  # Shell dynamic commands (tftp, http)
+  #
+  ShellPkg/DynamicCommand/TftpDynamicCommand/TftpDynamicCommand.inf
+  ShellPkg/DynamicCommand/HttpDynamicCommand/HttpDynamicCommand.inf
 
   #
   # GPIO (PL061)

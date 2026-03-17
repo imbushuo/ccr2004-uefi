@@ -95,6 +95,11 @@ WRITE_STATUS       = TRUE
   INF MdeModulePkg/Universal/Console/ConPlatformDxe/ConPlatformDxe.inf
   INF MdeModulePkg/Universal/Console/TerminalDxe/TerminalDxe.inf
 
+  # Disk I/O, Partition (MBR/GPT), FAT filesystem
+  INF MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf
+  INF MdeModulePkg/Universal/Disk/PartitionDxe/PartitionDxe.inf
+  INF FatPkg/EnhancedFatDxe/Fat.inf
+
   # GPIO
   INF Platform/MikroTik/CCR2004/Drivers/PlatformGpioDxe/PlatformGpioDxe.inf
   INF ArmPlatformPkg/Drivers/PL061GpioDxe/PL061GpioDxe.inf
@@ -153,8 +158,10 @@ WRITE_STATUS       = TRUE
   # RouterBOOT trampoline
   INF Platform/MikroTik/CCR2004/Application/RouterBootApp/RouterBootApp.inf
 
-  # UEFI Shell
+  # UEFI Shell + dynamic commands
   INF ShellPkg/Application/Shell/Shell.inf
+  INF ShellPkg/DynamicCommand/TftpDynamicCommand/TftpDynamicCommand.inf
+  INF ShellPkg/DynamicCommand/HttpDynamicCommand/HttpDynamicCommand.inf
 
 #
 # Boot FV: PeilessSec + compressed DXE FV

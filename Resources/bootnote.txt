@@ -1,0 +1,1 @@
+fs3:\ros.efi console=ttyS0,115200 benand_no_swecc=2 bootimage=1 yaffs.inband_tags=1 parts=1 arm64=Y board=CCR2004-1G-2XS-PCIe ver=7.21.3 bver=7.12.2 hw_opt=00100001 boot=1 mlc=12 loglevel=6 root=/dev/ram0

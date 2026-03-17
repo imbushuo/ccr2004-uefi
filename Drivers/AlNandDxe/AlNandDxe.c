@@ -558,6 +558,80 @@ AlNandFlashReadPage (
   return AlNandReadPage (Ctx, PageIndex, Buffer);
 }
 
+/**
+  Read only the inline tags (last 16 bytes) of a NAND page.
+  Uses column-addressed read: 4 MMIO reads instead of 512 for a full page.
+  Returns all-0xFF for pages in bad blocks.
+**/
+STATIC
+EFI_STATUS
+EFIAPI
+AlNandFlashReadTags (
+  IN  MIKROTIK_NAND_FLASH_PROTOCOL  *This,
+  IN  UINT32                         PageIndex,
+  OUT VOID                           *Buffer
+  )
+{
+  AL_NAND_CONTEXT  *Ctx;
+  UINT32           Block;
+  UINT32           Col;
+  EFI_STATUS       Status;
+  UINT32           i;
+
+  if ((This == NULL) || (Buffer == NULL)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Ctx = AL_NAND_FROM_NANDFLASH (This);
+
+  if (PageIndex >= Ctx->NumPages) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Block = PageIndex / Ctx->PagesPerBlock;
+  if (AlNandIsBlockBad (Ctx, Block)) {
+    SetMem (Buffer, 16, 0xFF);
+    return EFI_SUCCESS;
+  }
+
+  //
+  // Column address = PageSize - 16 (start of inline tags)
+  //
+  Col = Ctx->PageSize - 16;
+
+  //
+  // Configure codeword: 16 bytes, 1 codeword
+  //
+  AlNandCwConfig (Ctx, 16, 1);
+
+  //
+  // Send page read with column pointing to tag area
+  //
+  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_CMD, NAND_CMD_READ0));
+  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_ADDRESS, Col & 0xFF));
+  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_ADDRESS, (Col >> 8) & 0xFF));
+  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_ADDRESS, PageIndex & 0xFF));
+  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_ADDRESS, (PageIndex >> 8) & 0xFF));
+  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_CMD, NAND_CMD_READ1));
+  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_WAIT_READY, 0));
+
+  //
+  // Read 16 bytes
+  //
+  AlNandSendByteCount (Ctx, AL_NAND_CMD_TYPE_DATA_READ, 16);
+
+  Status = AlNandPollIntStatus (Ctx, AL_NAND_INT_BUF_RDRDY);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  for (i = 0; i < 4; i++) {
+    ((UINT32 *)Buffer)[i] = MmioRead32 (Ctx->DataBuffBase);
+  }
+
+  return EFI_SUCCESS;
+}
+
 // ---------------------------------------------------------------------------
 // EFI_BLOCK_IO_PROTOCOL implementation
 // ---------------------------------------------------------------------------
@@ -785,6 +859,7 @@ AlNandDxeInitialize (
   Ctx->NandFlash.PagesPerBlock = Ctx->PagesPerBlock;
   Ctx->NandFlash.NumBlocks     = Ctx->NumBlocks;
   Ctx->NandFlash.ReadPage      = AlNandFlashReadPage;
+  Ctx->NandFlash.ReadTags      = AlNandFlashReadTags;
 
   //
   // Allocate device path

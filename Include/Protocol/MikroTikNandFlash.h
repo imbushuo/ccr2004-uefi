@@ -36,11 +36,33 @@ EFI_STATUS
   OUT VOID                           *Buffer
   );
 
+/**
+  Read only the inline tags (last 16 bytes) of a NAND page.
+
+  Much faster than ReadPage for metadata-only access: reads 16 bytes
+  via column-addressed NAND read instead of the full 2048-byte page.
+
+  @param[in]  This       Protocol instance.
+  @param[in]  PageIndex  Zero-based page number.
+  @param[out] Buffer     Caller-allocated buffer of at least 16 bytes.
+
+  @retval EFI_SUCCESS    Tags read successfully.
+  @retval EFI_DEVICE_ERROR  Hardware read failure.
+**/
+typedef
+EFI_STATUS
+(EFIAPI *MIKROTIK_NAND_READ_TAGS)(
+  IN  MIKROTIK_NAND_FLASH_PROTOCOL  *This,
+  IN  UINT32                         PageIndex,
+  OUT VOID                           *Buffer
+  );
+
 struct _MIKROTIK_NAND_FLASH_PROTOCOL {
   UINT32                    PageSize;       ///< Bytes per page (2048)
   UINT32                    PagesPerBlock;  ///< Pages per erase block (64)
   UINT32                    NumBlocks;      ///< Total erase blocks (1024)
   MIKROTIK_NAND_READ_PAGE   ReadPage;
+  MIKROTIK_NAND_READ_TAGS   ReadTags;       ///< Fast tag-only read
 };
 
 extern EFI_GUID  gMikroTikNandFlashProtocolGuid;

@@ -12,27 +12,24 @@
 #include "MtYaffs2Dxe.h"
 
 /**
-  Check if a page is erased (all 0xFF in tag area).
+  Check if raw tag bytes (16 bytes) indicate an erased page.
 **/
 STATIC
 BOOLEAN
-IsPageErased (
-  IN  UINT8  *Page
+AreTagsErased (
+  IN  UINT32  *Raw
   )
 {
-  UINT32  *Tags;
-
-  Tags = (UINT32 *)(Page + YAFFS2_DATA_PER_PAGE);
-  return (Tags[0] == 0xFFFFFFFF) &&
-         (Tags[1] == 0xFFFFFFFF) &&
-         (Tags[2] == 0xFFFFFFFF) &&
-         (Tags[3] == 0xFFFFFFFF);
+  return (Raw[0] == 0xFFFFFFFF) &&
+         (Raw[1] == 0xFFFFFFFF) &&
+         (Raw[2] == 0xFFFFFFFF) &&
+         (Raw[3] == 0xFFFFFFFF);
 }
 
 /**
-  Parse inline tags from the last 16 bytes of a NAND page.
+  Parse raw tag words (4 x UINT32) into YAFFS2_TAGS.
 
-  Tag layout (4 x UINT32):
+  Tag layout:
     Word 0: seq_number
     Word 1: (type<<28)|obj_id  (header) or obj_id (data)
     Word 2: 0x80000000|parent_id (header) or chunk_id (data, 1-based)
@@ -40,15 +37,11 @@ IsPageErased (
 **/
 STATIC
 VOID
-ParseTags (
-  IN  UINT8        *Page,
+ParseTagWords (
+  IN  UINT32       *Raw,
   OUT YAFFS2_TAGS  *Tags
   )
 {
-  UINT32  *Raw;
-
-  Raw = (UINT32 *)(Page + YAFFS2_DATA_PER_PAGE);
-
   Tags->SeqNumber = Raw[0];
   Tags->IsHeader  = (Raw[2] & 0x80000000) != 0;
 
@@ -440,6 +433,7 @@ Yaffs2DetectFilesystem (
   UINT32       BasePage;
   UINT32       PageInBlock;
   YAFFS2_TAGS  Tags;
+  UINT32       RawTags[4];
   UINT32       FirstSeq;
   BOOLEAN      SeqOk;
   BOOLEAN      FoundHeader;
@@ -448,12 +442,15 @@ Yaffs2DetectFilesystem (
   for (Block = 0; (Block < 10) && (Block < Nand->NumBlocks); Block++) {
     BasePage = Block * Nand->PagesPerBlock;
 
-    Status = Nand->ReadPage (Nand, BasePage, PageBuffer);
-    if (EFI_ERROR (Status) || IsPageErased (PageBuffer)) {
+    //
+    // Use fast tag-only read for detection
+    //
+    Status = Nand->ReadTags (Nand, BasePage, RawTags);
+    if (EFI_ERROR (Status) || AreTagsErased (RawTags)) {
       continue;
     }
 
-    ParseTags (PageBuffer, &Tags);
+    ParseTagWords (RawTags, &Tags);
     if ((Tags.SeqNumber < YAFFS2_SEQ_MIN) || (Tags.SeqNumber > YAFFS2_SEQ_MAX)) {
       continue;
     }
@@ -465,29 +462,38 @@ Yaffs2DetectFilesystem (
     SeqOk       = TRUE;
     FoundHeader = FALSE;
 
+    //
+    // For header detection we need the page data to check obj_type
+    //
     if (Tags.IsHeader) {
-      ObjType = *(UINT32 *)PageBuffer;
-      if ((ObjType >= YAFFS2_TYPE_FILE) && (ObjType <= YAFFS2_TYPE_SPECIAL)) {
-        FoundHeader = TRUE;
+      Status = Nand->ReadPage (Nand, BasePage, PageBuffer);
+      if (!EFI_ERROR (Status)) {
+        ObjType = *(UINT32 *)PageBuffer;
+        if ((ObjType >= YAFFS2_TYPE_FILE) && (ObjType <= YAFFS2_TYPE_SPECIAL)) {
+          FoundHeader = TRUE;
+        }
       }
     }
 
     for (PageInBlock = 1; PageInBlock < Nand->PagesPerBlock; PageInBlock++) {
-      Status = Nand->ReadPage (Nand, BasePage + PageInBlock, PageBuffer);
-      if (EFI_ERROR (Status) || IsPageErased (PageBuffer)) {
-        continue;
+      Status = Nand->ReadTags (Nand, BasePage + PageInBlock, RawTags);
+      if (EFI_ERROR (Status) || AreTagsErased (RawTags)) {
+        break;  // Sequential write — rest of block is erased
       }
 
-      ParseTags (PageBuffer, &Tags);
+      ParseTagWords (RawTags, &Tags);
       if (Tags.SeqNumber != FirstSeq) {
         SeqOk = FALSE;
         break;
       }
 
       if (!FoundHeader && Tags.IsHeader) {
-        ObjType = *(UINT32 *)PageBuffer;
-        if ((ObjType >= YAFFS2_TYPE_FILE) && (ObjType <= YAFFS2_TYPE_SPECIAL)) {
-          FoundHeader = TRUE;
+        Status = Nand->ReadPage (Nand, BasePage + PageInBlock, PageBuffer);
+        if (!EFI_ERROR (Status)) {
+          ObjType = *(UINT32 *)PageBuffer;
+          if ((ObjType >= YAFFS2_TYPE_FILE) && (ObjType <= YAFFS2_TYPE_SPECIAL)) {
+            FoundHeader = TRUE;
+          }
         }
       }
     }
@@ -524,13 +530,16 @@ Yaffs2ScanNand (
   UINT32                        Page;
   EFI_STATUS                    Status;
   YAFFS2_TAGS                   Tags;
+  UINT32                        RawTags[4];
   UINT32                        UsedBlocks;
   UINT32                        PageCount;
+  UINT32                        FullReads;
 
   Nand       = Volume->Nand;
   PageBuf    = Volume->PageBuffer;
   UsedBlocks = 0;
   PageCount  = 0;
+  FullReads  = 0;
 
   DEBUG ((DEBUG_INFO, "[MtYaffs2] Scanning %u blocks...\n", Nand->NumBlocks));
 
@@ -538,10 +547,10 @@ Yaffs2ScanNand (
     BasePage = Block * Nand->PagesPerBlock;
 
     //
-    // Quick check: if first page of block is erased, skip entire block.
+    // Fast tag-only read to check if block is erased.
     //
-    Status = Nand->ReadPage (Nand, BasePage, PageBuf);
-    if (EFI_ERROR (Status) || IsPageErased (PageBuf)) {
+    Status = Nand->ReadTags (Nand, BasePage, RawTags);
+    if (EFI_ERROR (Status) || AreTagsErased (RawTags)) {
       continue;
     }
 
@@ -550,8 +559,12 @@ Yaffs2ScanNand (
     for (PageInBlock = 0; PageInBlock < Nand->PagesPerBlock; PageInBlock++) {
       Page = BasePage + PageInBlock;
 
+      //
+      // Read tags only (16 bytes) — much faster than full 2048-byte page read.
+      // Full page read is only done for header pages that need body parsing.
+      //
       if (PageInBlock > 0) {
-        Status = Nand->ReadPage (Nand, Page, PageBuf);
+        Status = Nand->ReadTags (Nand, Page, RawTags);
         if (EFI_ERROR (Status)) {
           continue;
         }
@@ -561,12 +574,12 @@ Yaffs2ScanNand (
       // YAFFS2 writes pages sequentially within a block.
       // Once we hit an erased page, the rest of the block is also erased.
       //
-      if (IsPageErased (PageBuf)) {
+      if (AreTagsErased (RawTags)) {
         break;
       }
 
       PageCount++;
-      ParseTags (PageBuf, &Tags);
+      ParseTagWords (RawTags, &Tags);
 
       //
       // Validate sequence number
@@ -583,15 +596,27 @@ Yaffs2ScanNand (
       }
 
       if (Tags.IsHeader) {
+        //
+        // Header pages need full page read to parse object header body.
+        //
+        Status = Nand->ReadPage (Nand, Page, PageBuf);
+        if (EFI_ERROR (Status)) {
+          continue;
+        }
+        FullReads++;
         ProcessHeader (Volume, PageBuf, &Tags, Page);
       } else {
+        //
+        // Data chunks: tags alone are sufficient (page index + n_bytes).
+        // No full page read needed — data is read on demand during file I/O.
+        //
         ProcessDataChunk (Volume, &Tags, Page);
       }
     }
   }
 
-  DEBUG ((DEBUG_INFO, "[MtYaffs2] Scanned %u used blocks, %u pages\n",
-          UsedBlocks, PageCount));
+  DEBUG ((DEBUG_INFO, "[MtYaffs2] Scanned %u used blocks, %u pages (%u full reads)\n",
+          UsedBlocks, PageCount, FullReads));
 
   //
   // Build the directory tree

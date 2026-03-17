@@ -1101,7 +1101,7 @@
 			};
 
 			partition@1 {
-				reg = <0x800000 0x7800000>;
+				reg = <0x800000 0x00>;
 				label = "RouterBOARD Main";
 			};
 		};

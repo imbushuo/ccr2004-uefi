@@ -586,12 +586,16 @@ AlNandBlockIoReadBlocks (
     //
     Block = Page / Ctx->PagesPerBlock;
     if (AlNandIsBlockBad (Ctx, Block)) {
-      return EFI_DEVICE_ERROR;
-    }
-
-    Status = AlNandReadPage (Ctx, Page, Buf);
-    if (EFI_ERROR (Status)) {
-      return EFI_DEVICE_ERROR;
+      //
+      // Return all-FF for bad block pages (erased pattern) so
+      // sequential reads can proceed past bad blocks.
+      //
+      SetMem (Buf, Ctx->PageSize, 0xFF);
+    } else {
+      Status = AlNandReadPage (Ctx, Page, Buf);
+      if (EFI_ERROR (Status)) {
+        return EFI_DEVICE_ERROR;
+      }
     }
 
     Buf += Ctx->PageSize;

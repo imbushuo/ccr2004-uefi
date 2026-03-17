@@ -1,0 +1,43 @@
+## @file
+#  DumpBlockApp — Read a block device and dump to a file.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001b
+  BASE_NAME                      = DumpBlockApp
+  FILE_GUID                      = a3b7e5d1-4f2c-8a09-6d1e-5b3c9f7e2a84
+  MODULE_TYPE                    = UEFI_APPLICATION
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = DumpBlockAppEntry
+
+[Sources]
+  DumpBlockApp.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ShellPkg/ShellPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  DevicePathLib
+  MemoryAllocationLib
+  PrintLib
+  UefiApplicationEntryPoint
+  UefiBootServicesTableLib
+  UefiLib
+
+[Protocols]
+  gEfiBlockIoProtocolGuid                         ## CONSUMES
+  gEfiShellProtocolGuid                           ## CONSUMES
+  gEfiShellParametersProtocolGuid                 ## CONSUMES
+  gEfiSimpleFileSystemProtocolGuid                ## CONSUMES
+
+[Guids]
+  gEfiFileInfoGuid                                ## CONSUMES

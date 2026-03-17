@@ -450,6 +450,9 @@
   #
   Platform/MikroTik/CCR2004/Application/BoardI2cEepromProbeApp/BoardI2cEepromProbeApp.inf
   Platform/MikroTik/CCR2004/Application/FormatBlockApp/FormatBlockApp.inf
+  Platform/MikroTik/CCR2004/Application/NandProbeApp/NandProbeApp.inf
+  Platform/MikroTik/CCR2004/Application/DumpBlockApp/DumpBlockApp.inf
+  Platform/MikroTik/CCR2004/Application/TftpPutApp/TftpPutApp.inf
 
   #
   # RouterBOOT trampoline (chain-loads factory RouterBOOT from SPI flash)

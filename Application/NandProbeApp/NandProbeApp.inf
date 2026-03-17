@@ -1,0 +1,41 @@
+## @file
+#  NandProbeApp — Scan NAND flash to identify filesystem format.
+#
+#  Scans erase block boundaries looking for UBI, YAFFS, or raw data.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001b
+  BASE_NAME                      = NandProbeApp
+  FILE_GUID                      = f4a2b7e3-1c5d-4e08-8d6a-9b3c7f2e5a81
+  MODULE_TYPE                    = UEFI_APPLICATION
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = NandProbeAppEntry
+
+[Sources]
+  NandProbeApp.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ShellPkg/ShellPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  DevicePathLib
+  MemoryAllocationLib
+  PrintLib
+  UefiApplicationEntryPoint
+  UefiBootServicesTableLib
+  UefiLib
+
+[Protocols]
+  gEfiBlockIoProtocolGuid                         ## CONSUMES
+  gEfiDevicePathProtocolGuid                      ## CONSUMES
+  gEfiShellParametersProtocolGuid                 ## CONSUMES

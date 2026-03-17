@@ -1,0 +1,45 @@
+## @file
+#  TftpPutApp — Upload a local file to a TFTP server.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001b
+  BASE_NAME                      = TftpPutApp
+  FILE_GUID                      = b1e3a7d5-5c2f-4a08-9d6e-3b7c8f1e2a95
+  MODULE_TYPE                    = UEFI_APPLICATION
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = TftpPutAppEntry
+
+[Sources]
+  TftpPutApp.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ShellPkg/ShellPkg.dec
+  NetworkPkg/NetworkPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  MemoryAllocationLib
+  NetLib
+  PrintLib
+  UefiApplicationEntryPoint
+  UefiBootServicesTableLib
+  UefiLib
+
+[Protocols]
+  gEfiManagedNetworkServiceBindingProtocolGuid    ## CONSUMES
+  gEfiMtftp4ServiceBindingProtocolGuid            ## CONSUMES
+  gEfiMtftp4ProtocolGuid                          ## CONSUMES
+  gEfiShellParametersProtocolGuid                 ## CONSUMES
+  gEfiSimpleFileSystemProtocolGuid                ## CONSUMES
+
+[Guids]
+  gEfiFileInfoGuid                                ## CONSUMES

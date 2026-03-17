@@ -155,6 +155,9 @@ WRITE_STATUS       = TRUE
   # Shell applications
   INF Platform/MikroTik/CCR2004/Application/BoardI2cEepromProbeApp/BoardI2cEepromProbeApp.inf
   INF Platform/MikroTik/CCR2004/Application/FormatBlockApp/FormatBlockApp.inf
+  INF Platform/MikroTik/CCR2004/Application/NandProbeApp/NandProbeApp.inf
+  INF Platform/MikroTik/CCR2004/Application/DumpBlockApp/DumpBlockApp.inf
+  INF Platform/MikroTik/CCR2004/Application/TftpPutApp/TftpPutApp.inf
 
   # RouterBOOT trampoline
   INF Platform/MikroTik/CCR2004/Application/RouterBootApp/RouterBootApp.inf

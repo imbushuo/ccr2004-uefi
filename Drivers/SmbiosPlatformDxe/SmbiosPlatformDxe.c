@@ -10,9 +10,12 @@
 **/
 
 #include <IndustryStandard/SmBios.h>
+#include <Library/BaseLib.h>
+#include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Protocol/Smbios.h>
+#include <Protocol/BoardInfo.h>
 
 //
 // Cross-reference handles
@@ -520,10 +523,21 @@ SmbiosPlatformDxeEntry (
   IN EFI_SYSTEM_TABLE  *SystemTable
   )
 {
-  EFI_STATUS          Status;
-  EFI_SMBIOS_PROTOCOL *Smbios;
-  EFI_SMBIOS_HANDLE   SmbiosHandle;
-  UINTN               Index;
+  EFI_STATUS                      Status;
+  EFI_SMBIOS_PROTOCOL             *Smbios;
+  EFI_SMBIOS_HANDLE               SmbiosHandle;
+  UINTN                           Index;
+  EFI_SMBIOS_HANDLE               Type1Handle;
+  EFI_SMBIOS_HANDLE               Type2Handle;
+  MIKROTIK_BOARD_INFO_PROTOCOL    *BoardInfo;
+  CONST CHAR8                     *Name;
+  CONST CHAR8                     *Serial;
+  UINTN                           StringNum;
+  CHAR8                           NameBuf[64];
+  CHAR8                           SerialBuf[32];
+
+  Type1Handle = SMBIOS_HANDLE_PI_RESERVED;
+  Type2Handle = SMBIOS_HANDLE_PI_RESERVED;
 
   Status = gBS->LocateProtocol (&gEfiSmbiosProtocolGuid, NULL, (VOID **)&Smbios);
   if (EFI_ERROR (Status)) {
@@ -537,7 +551,48 @@ SmbiosPlatformDxeEntry (
       DEBUG ((DEBUG_ERROR, "SMBIOS: Failed to add table index %d: %r\n", Index, Status));
       break;
     }
+
+    /* Save handles for Type1 and Type2 to update strings later */
+    if (((EFI_SMBIOS_TABLE_HEADER *)mSmbiosTables[Index])->Type == EFI_SMBIOS_TYPE_SYSTEM_INFORMATION) {
+      Type1Handle = SmbiosHandle;
+    } else if (((EFI_SMBIOS_TABLE_HEADER *)mSmbiosTables[Index])->Type == EFI_SMBIOS_TYPE_BASEBOARD_INFORMATION) {
+      Type2Handle = SmbiosHandle;
+    }
   }
 
-  return Status;
+  /* Update SMBIOS strings from board info */
+  Status = gBS->LocateProtocol (&gMikroTikBoardInfoProtocolGuid, NULL, (VOID **)&BoardInfo);
+  if (!EFI_ERROR (Status)) {
+    BoardInfo->GetBoardName (BoardInfo, &Name);
+    BoardInfo->GetSerial (BoardInfo, &Serial);
+    AsciiStrCpyS (NameBuf, sizeof (NameBuf), Name);
+    AsciiStrCpyS (SerialBuf, sizeof (SerialBuf), Serial);
+
+    /* Type 1 (System Information):
+     *   String 2 = ProductName
+     *   String 4 = SerialNumber
+     *   String 5 = SKUNumber */
+    if (Type1Handle != SMBIOS_HANDLE_PI_RESERVED) {
+      StringNum = 2;
+      Smbios->UpdateString (Smbios, &Type1Handle, &StringNum, NameBuf);
+      StringNum = 4;
+      Smbios->UpdateString (Smbios, &Type1Handle, &StringNum, SerialBuf);
+      StringNum = 5;
+      Smbios->UpdateString (Smbios, &Type1Handle, &StringNum, NameBuf);
+    }
+
+    /* Type 2 (Baseboard Information):
+     *   String 2 = ProductName
+     *   String 4 = SerialNumber */
+    if (Type2Handle != SMBIOS_HANDLE_PI_RESERVED) {
+      StringNum = 2;
+      Smbios->UpdateString (Smbios, &Type2Handle, &StringNum, NameBuf);
+      StringNum = 4;
+      Smbios->UpdateString (Smbios, &Type2Handle, &StringNum, SerialBuf);
+    }
+
+    DEBUG ((DEBUG_INFO, "SMBIOS: Updated strings from BoardInfo (name=%a serial=%a)\n", NameBuf, SerialBuf));
+  }
+
+  return EFI_SUCCESS;
 }

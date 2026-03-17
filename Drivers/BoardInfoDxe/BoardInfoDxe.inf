@@ -1,0 +1,41 @@
+## @file
+#  Board Info DXE driver for MikroTik CCR2004.
+#
+#  Reads board name, serial number, and MAC address from SPI flash
+#  TLV block and exposes them via MIKROTIK_BOARD_INFO_PROTOCOL.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001b
+  BASE_NAME                      = BoardInfoDxe
+  FILE_GUID                      = c7e4a3b2-1d5f-4e08-9c6a-3b8d7f1e5a92
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = BoardInfoDxeEntry
+
+[Sources]
+  BoardInfoDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Platform/MikroTik/CCR2004/CCR2004.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  MemoryAllocationLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Protocols]
+  gEfiSpiNorFlashProtocolGuid              ## CONSUMES
+  gMikroTikBoardInfoProtocolGuid           ## PRODUCES
+
+[Depex]
+  gEfiSpiNorFlashProtocolGuid

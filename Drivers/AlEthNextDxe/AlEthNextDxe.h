@@ -29,6 +29,7 @@
 #include <Protocol/DevicePath.h>
 #include <Protocol/PciIo.h>
 #include <Protocol/SimpleNetwork.h>
+#include <Protocol/BoardInfo.h>
 
 /* Alpine HAL headers */
 #include "al_hal_eth.h"

@@ -22,14 +22,18 @@
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
   ArmPkg/ArmPkg.dec
+  Platform/MikroTik/CCR2004/CCR2004.dec
 
 [LibraryClasses]
+  BaseLib
+  BaseMemoryLib
   DebugLib
   UefiBootServicesTableLib
   UefiDriverEntryPoint
 
 [Protocols]
-  gEfiSmbiosProtocolGuid
+  gEfiSmbiosProtocolGuid                   ## CONSUMES
+  gMikroTikBoardInfoProtocolGuid           ## CONSUMES
 
 [Depex]
-  gEfiSmbiosProtocolGuid
+  gEfiSmbiosProtocolGuid AND gMikroTikBoardInfoProtocolGuid

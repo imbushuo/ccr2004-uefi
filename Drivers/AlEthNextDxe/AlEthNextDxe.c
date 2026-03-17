@@ -1052,11 +1052,22 @@ AlEthNextStart (
     goto FreeCtx;
   }
 
-  /* Read MAC address from hardware via HAL */
+  /* Try board info protocol for MAC address first */
   ZeroMem (&MacAddr, sizeof (MacAddr));
-  al_eth_mac_addr_read ((void *)(UINTN)Ctx->EcBase, 0, (uint8_t *)&MacAddr);
+  {
+    MIKROTIK_BOARD_INFO_PROTOCOL  *BoardInfo;
+    EFI_STATUS                    BiStatus;
 
-  /* Generate random MAC if all zeros */
+    BiStatus = gBS->LocateProtocol (&gMikroTikBoardInfoProtocolGuid, NULL, (VOID **)&BoardInfo);
+    if (!EFI_ERROR (BiStatus)) {
+      BoardInfo->GetMacAddress (BoardInfo, &MacAddr);
+      DEBUG ((DEBUG_INFO, "AlEthNext: MAC from BoardInfo: %02x:%02x:%02x:%02x:%02x:%02x\n",
+              MacAddr.Addr[0], MacAddr.Addr[1], MacAddr.Addr[2],
+              MacAddr.Addr[3], MacAddr.Addr[4], MacAddr.Addr[5]));
+    }
+  }
+
+  /* If BoardInfo MAC is all zeros, fall back to EC read */
   {
     BOOLEAN IsZero = TRUE;
     UINT32  i;
@@ -1069,14 +1080,27 @@ AlEthNextStart (
     }
 
     if (IsZero) {
-      UINT64 Tsc = GetPerformanceCounter ();
-      MacAddr.Addr[0] = 0x02;  /* locally administered */
-      MacAddr.Addr[1] = (UINT8)(Tsc >> 8);
-      MacAddr.Addr[2] = (UINT8)(Tsc >> 16);
-      MacAddr.Addr[3] = (UINT8)(Tsc >> 24);
-      MacAddr.Addr[4] = (UINT8)(Tsc >> 32);
-      MacAddr.Addr[5] = (UINT8)(Tsc >> 40);
-      DEBUG ((DEBUG_INFO, "AlEthNext: No MAC in HW, generated random\n"));
+      al_eth_mac_addr_read ((void *)(UINTN)Ctx->EcBase, 0, (uint8_t *)&MacAddr);
+
+      /* Check again — generate random if still zero */
+      IsZero = TRUE;
+      for (i = 0; i < 6; i++) {
+        if (MacAddr.Addr[i] != 0) {
+          IsZero = FALSE;
+          break;
+        }
+      }
+
+      if (IsZero) {
+        UINT64 Tsc = GetPerformanceCounter ();
+        MacAddr.Addr[0] = 0x02;  /* locally administered */
+        MacAddr.Addr[1] = (UINT8)(Tsc >> 8);
+        MacAddr.Addr[2] = (UINT8)(Tsc >> 16);
+        MacAddr.Addr[3] = (UINT8)(Tsc >> 24);
+        MacAddr.Addr[4] = (UINT8)(Tsc >> 32);
+        MacAddr.Addr[5] = (UINT8)(Tsc >> 40);
+        DEBUG ((DEBUG_INFO, "AlEthNext: No MAC in HW or BoardInfo, generated random\n"));
+      }
     }
   }
 

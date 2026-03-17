@@ -437,6 +437,8 @@ RouterBootAppEntry (
   // 7e: Invalidate I-cache so CPU fetches fresh code from the copy.
   //
   ArmInvalidateInstructionCache ();
+  ArmDataSynchronizationBarrier ();
+  ArmInstructionSynchronizationBarrier ();
 
   //
   // 7f: Jump to RouterBOOT entry point — never returns.

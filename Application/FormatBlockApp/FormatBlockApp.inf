@@ -1,0 +1,49 @@
+## @file
+#  FormatBlockApp — Create GPT + FAT32 on a block device.
+#
+#  Shell application that writes a protective MBR, GPT partition table,
+#  and FAT32 filesystem to a specified block device handle.
+#  Can also create and format a RAM disk in one step.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001b
+  BASE_NAME                      = FormatBlockApp
+  FILE_GUID                      = d5e7b3a1-2f4c-894a-913e-7d5b8f2c6a42
+  MODULE_TYPE                    = UEFI_APPLICATION
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = FormatBlockAppEntry
+
+[Sources]
+  FormatBlockApp.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  ShellPkg/ShellPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  DevicePathLib
+  MemoryAllocationLib
+  PrintLib
+  UefiApplicationEntryPoint
+  UefiBootServicesTableLib
+  UefiLib
+
+[Protocols]
+  gEfiBlockIoProtocolGuid                         ## CONSUMES
+  gEfiDevicePathProtocolGuid                      ## CONSUMES
+  gEfiRamDiskProtocolGuid                         ## CONSUMES
+  gEfiShellParametersProtocolGuid                 ## CONSUMES
+
+[Guids]
+  gEfiPartTypeSystemPartGuid                      ## CONSUMES
+  gEfiVirtualDiskGuid                             ## CONSUMES

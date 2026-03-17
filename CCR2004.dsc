@@ -404,8 +404,14 @@
   #
   # Shell dynamic commands (tftp, http)
   #
-  ShellPkg/DynamicCommand/TftpDynamicCommand/TftpDynamicCommand.inf
-  ShellPkg/DynamicCommand/HttpDynamicCommand/HttpDynamicCommand.inf
+  ShellPkg/DynamicCommand/TftpDynamicCommand/TftpDynamicCommand.inf {
+    <PcdsFixedAtBuild>
+      gEfiShellPkgTokenSpaceGuid.PcdShellLibAutoInitialize|FALSE
+  }
+  ShellPkg/DynamicCommand/HttpDynamicCommand/HttpDynamicCommand.inf {
+    <PcdsFixedAtBuild>
+      gEfiShellPkgTokenSpaceGuid.PcdShellLibAutoInitialize|FALSE
+  }
 
   #
   # GPIO (PL061)
@@ -440,9 +446,10 @@
   EmbeddedPkg/Drivers/DtPlatformDxe/DtPlatformDxe.inf
 
   #
-  # Board I2C EEPROM probe (shell application)
+  # Shell applications
   #
   Platform/MikroTik/CCR2004/Application/BoardI2cEepromProbeApp/BoardI2cEepromProbeApp.inf
+  Platform/MikroTik/CCR2004/Application/FormatBlockApp/FormatBlockApp.inf
 
   #
   # RouterBOOT trampoline (chain-loads factory RouterBOOT from SPI flash)

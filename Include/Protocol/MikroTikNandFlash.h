@@ -57,12 +57,33 @@ EFI_STATUS
   OUT VOID                           *Buffer
   );
 
+/**
+  Read the full page data reusing the NAND's internal page buffer.
+
+  Must be called immediately after ReadTags on the same page.
+  Uses NAND Change Read Column (05h-E0h) to re-output from column 0
+  without a second array read — avoids the ~25-70us tR penalty.
+
+  @param[in]  This       Protocol instance.
+  @param[out] Buffer     Caller-allocated buffer of at least PageSize bytes.
+
+  @retval EFI_SUCCESS    Page data read successfully.
+  @retval EFI_DEVICE_ERROR  Hardware failure.
+**/
+typedef
+EFI_STATUS
+(EFIAPI *MIKROTIK_NAND_READ_PAGE_BODY)(
+  IN  MIKROTIK_NAND_FLASH_PROTOCOL  *This,
+  OUT VOID                           *Buffer
+  );
+
 struct _MIKROTIK_NAND_FLASH_PROTOCOL {
-  UINT32                    PageSize;       ///< Bytes per page (2048)
-  UINT32                    PagesPerBlock;  ///< Pages per erase block (64)
-  UINT32                    NumBlocks;      ///< Total erase blocks (1024)
-  MIKROTIK_NAND_READ_PAGE   ReadPage;
-  MIKROTIK_NAND_READ_TAGS   ReadTags;       ///< Fast tag-only read
+  UINT32                       PageSize;       ///< Bytes per page (2048)
+  UINT32                       PagesPerBlock;  ///< Pages per erase block (64)
+  UINT32                       NumBlocks;      ///< Total erase blocks (1024)
+  MIKROTIK_NAND_READ_PAGE      ReadPage;
+  MIKROTIK_NAND_READ_TAGS      ReadTags;       ///< Fast tag-only read
+  MIKROTIK_NAND_READ_PAGE_BODY ReadPageBody;   ///< Fast full read after ReadTags
 };
 
 extern EFI_GUID  gMikroTikNandFlashProtocolGuid;

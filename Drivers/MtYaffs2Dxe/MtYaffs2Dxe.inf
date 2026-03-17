@@ -37,6 +37,7 @@
   BaseMemoryLib
   DebugLib
   MemoryAllocationLib
+  TimerLib
   TimeBaseLib
   UefiBootServicesTableLib
   UefiDriverEntryPoint

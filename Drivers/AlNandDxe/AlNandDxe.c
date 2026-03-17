@@ -94,6 +94,9 @@ AlNandSendByteCount (
 
 /**
   Poll NFC_INT_STAT for a given bit mask, with timeout.
+
+  Uses a tight busy-loop for the first 1000 iterations (~50us at MMIO speed),
+  then falls back to 1us delays to avoid locking up on long operations.
 **/
 STATIC
 EFI_STATUS
@@ -102,15 +105,26 @@ AlNandPollIntStatus (
   IN UINT32           Mask
   )
 {
-  UINTN   Elapsed;
+  UINTN   Iter;
   UINT32  Status;
 
-  for (Elapsed = 0; Elapsed < AL_NAND_POLL_TIMEOUT_US; Elapsed += AL_NAND_POLL_INTERVAL_US) {
+  //
+  // Phase 1: tight busy-poll (no delay) — covers typical tR latency
+  //
+  for (Iter = 0; Iter < 1000; Iter++) {
     Status = MmioRead32 (Ctx->CtrlBase + AL_NAND_NFC_INT_STAT);
     if ((Status & Mask) != 0) {
-      //
-      // Clear the matched bits (W1C register)
-      //
+      MmioWrite32 (Ctx->CtrlBase + AL_NAND_NFC_INT_STAT, Status & Mask);
+      return EFI_SUCCESS;
+    }
+  }
+
+  //
+  // Phase 2: delayed poll for slow operations (up to 1 second)
+  //
+  for (Iter = 0; Iter < AL_NAND_POLL_TIMEOUT_US; Iter += AL_NAND_POLL_INTERVAL_US) {
+    Status = MmioRead32 (Ctx->CtrlBase + AL_NAND_NFC_INT_STAT);
+    if ((Status & Mask) != 0) {
       MmioWrite32 (Ctx->CtrlBase + AL_NAND_NFC_INT_STAT, Status & Mask);
       return EFI_SUCCESS;
     }
@@ -140,6 +154,7 @@ AlNandWaitCmdEmpty (
 
 /**
   Configure codeword size and count for data transfers.
+  Skips register writes if the configuration hasn't changed.
 **/
 STATIC
 VOID
@@ -149,6 +164,10 @@ AlNandCwConfig (
   IN UINT32           CwCount
   )
 {
+  if ((CwSize == Ctx->LastCwSize) && (CwCount == Ctx->LastCwCount)) {
+    return;
+  }
+
   AlNandWriteMasked32 (
     Ctx->CtrlBase + AL_NAND_CW_SIZE_CNT_REG,
     AL_NAND_CW_SIZE_MASK | AL_NAND_CW_COUNT_MASK,
@@ -159,6 +178,9 @@ AlNandCwConfig (
   // Wrapper codeword size
   //
   MmioWrite32 (Ctx->WrapBase + AL_NAND_WRAP_CW_SIZE, CwSize);
+
+  Ctx->LastCwSize  = CwSize;
+  Ctx->LastCwCount = CwCount;
 }
 
 // ---------------------------------------------------------------------------
@@ -632,6 +654,72 @@ AlNandFlashReadTags (
   return EFI_SUCCESS;
 }
 
+/**
+  Read full page data from the NAND's internal buffer using Change Read Column.
+  Must be called immediately after ReadTags on the same page — avoids a
+  second tR by reusing the page already loaded in the NAND's page register.
+
+  Issues: CMD(0x05), COL(0x0000), CMD(0xE0), then reads PageSize bytes.
+**/
+STATIC
+EFI_STATUS
+EFIAPI
+AlNandFlashReadPageBody (
+  IN  MIKROTIK_NAND_FLASH_PROTOCOL  *This,
+  OUT VOID                           *Buffer
+  )
+{
+  AL_NAND_CONTEXT  *Ctx;
+  EFI_STATUS       Status;
+  UINT32           CwSize;
+  UINT32           CwCount;
+  UINT32           CwIdx;
+  UINT32           i;
+
+  if ((This == NULL) || (Buffer == NULL)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Ctx = AL_NAND_FROM_NANDFLASH (This);
+
+  CwSize  = AL_NAND_CW_SIZE;
+  CwCount = Ctx->PageSize / CwSize;
+
+  AlNandCwConfig (Ctx, CwSize, CwCount);
+
+  //
+  // Change Read Column: reposition output to column 0 without re-reading
+  // from the NAND array. The page is already in the NAND's page register.
+  //
+  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_CMD, NAND_CMD_CHANGE_COL1));
+  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_ADDRESS, 0));    // Column low
+  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_ADDRESS, 0));    // Column high
+  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_CMD, NAND_CMD_CHANGE_COL2));
+
+  //
+  // Queue all DATA_READ_COUNT commands
+  //
+  for (CwIdx = 0; CwIdx < CwCount; CwIdx++) {
+    AlNandSendByteCount (Ctx, AL_NAND_CMD_TYPE_DATA_READ, (UINT16)CwSize);
+  }
+
+  //
+  // Read each codeword
+  //
+  for (CwIdx = 0; CwIdx < CwCount; CwIdx++) {
+    Status = AlNandPollIntStatus (Ctx, AL_NAND_INT_BUF_RDRDY);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+
+    for (i = 0; i < CwSize / 4; i++) {
+      ((UINT32 *)Buffer)[CwIdx * (CwSize / 4) + i] = MmioRead32 (Ctx->DataBuffBase);
+    }
+  }
+
+  return EFI_SUCCESS;
+}
+
 // ---------------------------------------------------------------------------
 // EFI_BLOCK_IO_PROTOCOL implementation
 // ---------------------------------------------------------------------------
@@ -860,6 +948,7 @@ AlNandDxeInitialize (
   Ctx->NandFlash.NumBlocks     = Ctx->NumBlocks;
   Ctx->NandFlash.ReadPage      = AlNandFlashReadPage;
   Ctx->NandFlash.ReadTags      = AlNandFlashReadTags;
+  Ctx->NandFlash.ReadPageBody  = AlNandFlashReadPageBody;
 
   //
   // Allocate device path

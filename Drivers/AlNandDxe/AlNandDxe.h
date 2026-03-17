@@ -166,6 +166,8 @@
 //
 #define NAND_CMD_READ0                0x00
 #define NAND_CMD_READ1                0x30
+#define NAND_CMD_CHANGE_COL1          0x05
+#define NAND_CMD_CHANGE_COL2          0xE0
 #define NAND_CMD_READID               0x90
 #define NAND_CMD_RESET                0xFF
 #define NAND_CMD_STATUS               0x70
@@ -181,17 +183,20 @@
 #define AL_NAND_BASE                  0xFA100000
 
 //
-// ONFI Mode 0 timing at 500 MHz sbclk (in controller cycles)
+// ONFI Mode 4 timing at 500 MHz sbclk (in controller cycles)
 // Computed as: ceil(ns * 500MHz / 1e9)
+// Toshiba BENAND TC58BVG0S3HTA00 supports up to Mode 5,
+// but Mode 5 causes read errors on this board — use Mode 4.
 //
-#define AL_NAND_TIM_SETUP             7     // 14 ns
-#define AL_NAND_TIM_HOLD              11    // 22 ns
-#define AL_NAND_TIM_WH                16    // 32 ns
-#define AL_NAND_TIM_WRP               27    // 54 ns
-#define AL_NAND_TIM_INTCMD            43    // 86 ns
-#define AL_NAND_TIM_RR                22    // 43 ns (21.5, rounded up)
-#define AL_NAND_TIM_WB                103   // 206 ns
-#define AL_NAND_TIM_READ_DLY          3
+//                             Mode 0 (old)    Mode 4
+#define AL_NAND_TIM_SETUP       6     //  12 ns (tCS=12ns)    was  7 (14 ns)
+#define AL_NAND_TIM_HOLD        3     //   6 ns (tCH=5ns)     was 11 (22 ns)
+#define AL_NAND_TIM_WH          5     //  10 ns (tWH=10ns)    was 16 (32 ns)
+#define AL_NAND_TIM_WRP         6     //  12 ns (tWP=12ns)    was 27 (54 ns)
+#define AL_NAND_TIM_INTCMD     10     //  20 ns (tAR+tCLR)    was 43 (86 ns)
+#define AL_NAND_TIM_RR         10     //  20 ns (tRR=20ns)    was 22 (43 ns)
+#define AL_NAND_TIM_WB         50     // 100 ns (tWB=100ns)   was103 (206 ns)
+#define AL_NAND_TIM_READ_DLY    3     //   6 ns               unchanged
 
 //
 // Toshiba BENAND 1Gbit (128MB) parameters
@@ -208,7 +213,7 @@
 // Polling
 //
 #define AL_NAND_POLL_TIMEOUT_US       1000000   // 1 second
-#define AL_NAND_POLL_INTERVAL_US      10
+#define AL_NAND_POLL_INTERVAL_US      1
 
 //
 // Codeword size for reads (matches Linux driver's ecc.size for BENAND)
@@ -239,6 +244,8 @@ typedef struct {
   UINT32                    NumBlocks;
   UINT32                    NumPages;
   UINT8                     BadBlockMap[AL_NAND_BB_MAP_SIZE];
+  UINT32                          LastCwSize;
+  UINT32                          LastCwCount;
   EFI_BLOCK_IO_PROTOCOL           BlockIo;
   EFI_BLOCK_IO_MEDIA              Media;
   MIKROTIK_NAND_FLASH_PROTOCOL    NandFlash;

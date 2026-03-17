@@ -7,6 +7,7 @@
 **/
 
 #include "MtYaffs2Dxe.h"
+#include <Library/TimerLib.h>
 
 /**
   Allocate and initialize a YAFFS2 volume, scan the NAND, and install
@@ -46,7 +47,21 @@ Yaffs2AllocateVolume (
   //
   // Scan NAND and build filesystem tree
   //
-  Status = Yaffs2ScanNand (Volume);
+  {
+    UINT64  StartTick;
+    UINT64  EndTick;
+    UINT64  Freq;
+    UINT64  ElapsedMs;
+
+    Freq      = GetPerformanceCounterProperties (NULL, NULL);
+    StartTick = GetPerformanceCounter ();
+
+    Status = Yaffs2ScanNand (Volume);
+
+    EndTick   = GetPerformanceCounter ();
+    ElapsedMs = ((EndTick - StartTick) * 1000) / Freq;
+    DEBUG ((DEBUG_WARN, "[MtYaffs2] NAND scan took %lu ms\n", ElapsedMs));
+  }
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "[MtYaffs2] NAND scan failed: %r\n", Status));
     if (Volume->Objects != NULL) {
@@ -79,7 +94,7 @@ Yaffs2AllocateVolume (
   }
 
   *VolumeOut = Volume;
-  DEBUG ((DEBUG_INFO, "[MtYaffs2] Volume ready on handle %p\n", Handle));
+  DEBUG ((DEBUG_WARN, "[MtYaffs2] Volume ready on handle %p\n", Handle));
   return EFI_SUCCESS;
 }
 

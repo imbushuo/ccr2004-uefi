@@ -10,6 +10,7 @@
 **/
 
 #include "MtYaffs2Dxe.h"
+#include <Library/TimerLib.h>
 
 /**
   Check if raw tag bytes (16 bytes) indicate an erased page.
@@ -410,7 +411,7 @@ BuildTree (
 
   Volume->Root = (Volume->MaxObjId >= 1) ? Volume->Objects[1] : NULL;
 
-  DEBUG ((DEBUG_INFO, "[MtYaffs2] Tree built: %u live objects\n", LiveCount));
+  DEBUG ((DEBUG_WARN, "[MtYaffs2] Tree built: %u live objects\n", LiveCount));
 }
 
 /**
@@ -499,7 +500,7 @@ Yaffs2DetectFilesystem (
     }
 
     if (SeqOk && FoundHeader) {
-      DEBUG ((DEBUG_INFO, "[MtYaffs2] Detected YAFFS2 on NAND (block %u, seq 0x%x)\n",
+      DEBUG ((DEBUG_WARN, "[MtYaffs2] Detected YAFFS2 on NAND (block %u, seq 0x%x)\n",
               Block, FirstSeq));
       return EFI_SUCCESS;
     }
@@ -533,21 +534,21 @@ Yaffs2ScanNand (
   UINT32                        RawTags[4];
   UINT32                        UsedBlocks;
   UINT32                        PageCount;
-  UINT32                        FullReads;
+  UINT32                        HeaderCount;
 
-  Nand       = Volume->Nand;
-  PageBuf    = Volume->PageBuffer;
-  UsedBlocks = 0;
-  PageCount  = 0;
-  FullReads  = 0;
+  Nand        = Volume->Nand;
+  PageBuf     = Volume->PageBuffer;
+  UsedBlocks  = 0;
+  PageCount   = 0;
+  HeaderCount = 0;
 
-  DEBUG ((DEBUG_INFO, "[MtYaffs2] Scanning %u blocks...\n", Nand->NumBlocks));
+  DEBUG ((DEBUG_WARN, "[MtYaffs2] Scanning %u blocks...\n", Nand->NumBlocks));
 
   for (Block = 0; Block < Nand->NumBlocks; Block++) {
     BasePage = Block * Nand->PagesPerBlock;
 
     //
-    // Fast tag-only read to check if block is erased.
+    // Fast tag-only read (16 bytes) to check if block is erased.
     //
     Status = Nand->ReadTags (Nand, BasePage, RawTags);
     if (EFI_ERROR (Status) || AreTagsErased (RawTags)) {
@@ -559,10 +560,6 @@ Yaffs2ScanNand (
     for (PageInBlock = 0; PageInBlock < Nand->PagesPerBlock; PageInBlock++) {
       Page = BasePage + PageInBlock;
 
-      //
-      // Read tags only (16 bytes) — much faster than full 2048-byte page read.
-      // Full page read is only done for header pages that need body parsing.
-      //
       if (PageInBlock > 0) {
         Status = Nand->ReadTags (Nand, Page, RawTags);
         if (EFI_ERROR (Status)) {
@@ -570,10 +567,6 @@ Yaffs2ScanNand (
         }
       }
 
-      //
-      // YAFFS2 writes pages sequentially within a block.
-      // Once we hit an erased page, the rest of the block is also erased.
-      //
       if (AreTagsErased (RawTags)) {
         break;
       }
@@ -581,46 +574,33 @@ Yaffs2ScanNand (
       PageCount++;
       ParseTagWords (RawTags, &Tags);
 
-      //
-      // Validate sequence number
-      //
       if ((Tags.SeqNumber < YAFFS2_SEQ_MIN) || (Tags.SeqNumber > YAFFS2_SEQ_MAX)) {
         continue;
       }
 
-      //
-      // Skip invalid or pseudo object IDs
-      //
       if ((Tags.ObjId == 0) || (Tags.ObjId == 3) || (Tags.ObjId == 4)) {
         continue;
       }
 
       if (Tags.IsHeader) {
         //
-        // Header pages need full page read to parse object header body.
+        // Header pages need full page data for object header parsing.
         //
         Status = Nand->ReadPage (Nand, Page, PageBuf);
         if (EFI_ERROR (Status)) {
           continue;
         }
-        FullReads++;
+        HeaderCount++;
         ProcessHeader (Volume, PageBuf, &Tags, Page);
       } else {
-        //
-        // Data chunks: tags alone are sufficient (page index + n_bytes).
-        // No full page read needed — data is read on demand during file I/O.
-        //
         ProcessDataChunk (Volume, &Tags, Page);
       }
     }
   }
 
-  DEBUG ((DEBUG_INFO, "[MtYaffs2] Scanned %u used blocks, %u pages (%u full reads)\n",
-          UsedBlocks, PageCount, FullReads));
+  DEBUG ((DEBUG_WARN, "[MtYaffs2] Scanned %u used blocks, %u pages (%u headers)\n",
+          UsedBlocks, PageCount, HeaderCount));
 
-  //
-  // Build the directory tree
-  //
   BuildTree (Volume);
 
   if ((Volume->Root == NULL) || (Volume->Root->Type != YAFFS2_TYPE_DIR)) {
@@ -628,6 +608,6 @@ Yaffs2ScanNand (
     return EFI_VOLUME_CORRUPTED;
   }
 
-  DEBUG ((DEBUG_INFO, "[MtYaffs2] Scan complete, root obj_id=1\n"));
+  DEBUG ((DEBUG_WARN, "[MtYaffs2] Scan complete, root obj_id=1\n"));
   return EFI_SUCCESS;
 }

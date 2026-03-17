@@ -226,7 +226,7 @@ SpiNorGetFlashId (
 
   Status = SpiWriteThenRead (Instance->SpiIo, &Cmd, 1, Buffer, 3);
   if (!EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_INFO, "SpiNorFlash: JEDEC ID = %02x %02x %02x\n",
+    DEBUG ((DEBUG_VERBOSE, "SpiNorFlash: JEDEC ID = %02x %02x %02x\n",
             Buffer[0], Buffer[1], Buffer[2]));
   }
 
@@ -520,7 +520,7 @@ SpiNorFlashDxeEntry (
   UINT8                   JedecId[3];
   EFI_HANDLE              FlashHandle;
 
-  DEBUG ((DEBUG_INFO, "SpiNorFlash: Locating SPI IO protocol...\n"));
+  DEBUG ((DEBUG_VERBOSE, "SpiNorFlash: Locating SPI IO protocol...\n"));
 
   /* The SpiBusDxe installs EFI_SPI_IO_PROTOCOL with the peripheral driver
    * GUID (gEdk2JedecSfdpSpiDxeDriverGuid) as the protocol GUID. */
@@ -553,12 +553,12 @@ SpiNorFlashDxeEntry (
   CopyMem (Instance->DeviceId, JedecId, 3);
 
   /* W25Q128JWS: Manufacturer=0xEF, Device=0x6018 */
-  DEBUG ((DEBUG_INFO, "SpiNorFlash: Detected flash: MFR=0x%02x DEV=0x%02x%02x",
+  DEBUG ((DEBUG_VERBOSE, "SpiNorFlash: Detected flash: MFR=0x%02x DEV=0x%02x%02x",
           JedecId[0], JedecId[1], JedecId[2]));
   if (JedecId[0] == 0xEF) {
-    DEBUG ((DEBUG_INFO, " (Winbond)\n"));
+    DEBUG ((DEBUG_VERBOSE, " (Winbond)\n"));
   } else {
-    DEBUG ((DEBUG_INFO, "\n"));
+    DEBUG ((DEBUG_VERBOSE, "\n"));
   }
 
   /* Wire up protocol */
@@ -588,7 +588,7 @@ SpiNorFlashDxeEntry (
     return Status;
   }
 
-  DEBUG ((DEBUG_INFO, "SpiNorFlash: %u MB flash ready (4KB erase, write-protected by default)\n",
+  DEBUG ((DEBUG_VERBOSE, "SpiNorFlash: %u MB flash ready (4KB erase, write-protected by default)\n",
           FLASH_SIZE / (1024 * 1024)));
 
   return EFI_SUCCESS;

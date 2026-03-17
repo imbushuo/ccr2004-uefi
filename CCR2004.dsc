@@ -441,6 +441,11 @@
   Platform/MikroTik/CCR2004/Drivers/AlNandDxe/AlNandDxe.inf
 
   #
+  # YAFFS2 filesystem (read-only, MikroTik modified format)
+  #
+  Platform/MikroTik/CCR2004/Drivers/MtYaffs2Dxe/MtYaffs2Dxe.inf
+
+  #
   # Device Tree
   #
   EmbeddedPkg/Drivers/DtPlatformDxe/DtPlatformDxe.inf

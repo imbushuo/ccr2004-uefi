@@ -518,6 +518,47 @@ AlNandIsBlockBad (
 }
 
 // ---------------------------------------------------------------------------
+// MIKROTIK_NAND_FLASH_PROTOCOL implementation
+// ---------------------------------------------------------------------------
+
+#define AL_NAND_FROM_NANDFLASH(a)  CR (a, AL_NAND_CONTEXT, NandFlash, AL_NAND_SIGNATURE)
+
+/**
+  Read a single NAND page (full page including tag area in last 16 bytes).
+  Returns all-0xFF for pages in bad blocks.
+**/
+STATIC
+EFI_STATUS
+EFIAPI
+AlNandFlashReadPage (
+  IN  MIKROTIK_NAND_FLASH_PROTOCOL  *This,
+  IN  UINT32                         PageIndex,
+  OUT VOID                           *Buffer
+  )
+{
+  AL_NAND_CONTEXT  *Ctx;
+  UINT32           Block;
+
+  if ((This == NULL) || (Buffer == NULL)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Ctx = AL_NAND_FROM_NANDFLASH (This);
+
+  if (PageIndex >= Ctx->NumPages) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  Block = PageIndex / Ctx->PagesPerBlock;
+  if (AlNandIsBlockBad (Ctx, Block)) {
+    SetMem (Buffer, Ctx->PageSize, 0xFF);
+    return EFI_SUCCESS;
+  }
+
+  return AlNandReadPage (Ctx, PageIndex, Buffer);
+}
+
+// ---------------------------------------------------------------------------
 // EFI_BLOCK_IO_PROTOCOL implementation
 // ---------------------------------------------------------------------------
 
@@ -738,6 +779,14 @@ AlNandDxeInitialize (
   Ctx->BlockIo.FlushBlocks = AlNandBlockIoFlushBlocks;
 
   //
+  // Set up NAND Flash protocol
+  //
+  Ctx->NandFlash.PageSize      = Ctx->PageSize;
+  Ctx->NandFlash.PagesPerBlock = Ctx->PagesPerBlock;
+  Ctx->NandFlash.NumBlocks     = Ctx->NumBlocks;
+  Ctx->NandFlash.ReadPage      = AlNandFlashReadPage;
+
+  //
   // Allocate device path
   //
   DevicePath = AllocateCopyPool (sizeof (mAlNandDevicePathTemplate),
@@ -756,6 +805,8 @@ AlNandDxeInitialize (
                   &Ctx->BlockIo,
                   &gEfiDevicePathProtocolGuid,
                   (EFI_DEVICE_PATH_PROTOCOL *)DevicePath,
+                  &gMikroTikNandFlashProtocolGuid,
+                  &Ctx->NandFlash,
                   NULL
                   );
   if (EFI_ERROR (Status)) {

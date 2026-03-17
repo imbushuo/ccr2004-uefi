@@ -14,6 +14,7 @@
 #include <Uefi.h>
 #include <Protocol/BlockIo.h>
 #include <Protocol/DevicePath.h>
+#include <Protocol/MikroTikNandFlash.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
@@ -238,8 +239,9 @@ typedef struct {
   UINT32                    NumBlocks;
   UINT32                    NumPages;
   UINT8                     BadBlockMap[AL_NAND_BB_MAP_SIZE];
-  EFI_BLOCK_IO_PROTOCOL     BlockIo;
-  EFI_BLOCK_IO_MEDIA        Media;
+  EFI_BLOCK_IO_PROTOCOL           BlockIo;
+  EFI_BLOCK_IO_MEDIA              Media;
+  MIKROTIK_NAND_FLASH_PROTOCOL    NandFlash;
 } AL_NAND_CONTEXT;
 
 #define AL_NAND_FROM_BLOCKIO(a)  CR (a, AL_NAND_CONTEXT, BlockIo, AL_NAND_SIGNATURE)

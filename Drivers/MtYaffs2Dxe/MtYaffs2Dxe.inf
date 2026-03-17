@@ -1,0 +1,52 @@
+## @file
+#  MikroTik YAFFS2 read-only filesystem driver.
+#
+#  Reads MikroTik's modified YAFFS2 format from NAND flash via the
+#  MikroTik NAND Flash Protocol. Produces EFI_SIMPLE_FILE_SYSTEM_PROTOCOL.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001b
+  BASE_NAME                      = MtYaffs2Dxe
+  FILE_GUID                      = c4d7e8f9-3a2b-4c5d-a6b7-8e9f0a1b2c3d
+  MODULE_TYPE                    = UEFI_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = MtYaffs2EntryPoint
+
+[Sources]
+  MtYaffs2Dxe.h
+  MtYaffs2Dxe.c
+  Scan.c
+  Volume.c
+  Open.c
+  ReadDir.c
+  Info.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  EmbeddedPkg/EmbeddedPkg.dec
+  Platform/MikroTik/CCR2004/CCR2004.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  MemoryAllocationLib
+  TimeBaseLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiLib
+
+[Protocols]
+  gMikroTikNandFlashProtocolGuid           ## TO_START
+  gEfiSimpleFileSystemProtocolGuid         ## BY_START
+
+[Guids]
+  gEfiFileInfoGuid                         ## SOMETIMES_CONSUMES
+  gEfiFileSystemInfoGuid                   ## SOMETIMES_CONSUMES
+  gEfiFileSystemVolumeLabelInfoIdGuid      ## SOMETIMES_CONSUMES

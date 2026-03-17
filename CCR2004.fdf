@@ -119,6 +119,9 @@ WRITE_STATUS       = TRUE
   # NAND
   INF Platform/MikroTik/CCR2004/Drivers/AlNandDxe/AlNandDxe.inf
 
+  # YAFFS2 filesystem
+  INF Platform/MikroTik/CCR2004/Drivers/MtYaffs2Dxe/MtYaffs2Dxe.inf
+
   # Device Tree
   INF EmbeddedPkg/Drivers/DtPlatformDxe/DtPlatformDxe.inf
   FILE FREEFORM = 25462CDA-221F-47DF-AC1D-259CFAA4E326 {

@@ -35,6 +35,7 @@
   BaseMemoryLib
   DebugLib
   MemoryAllocationLib
+  SerialPortLib
   TimerLib
   UefiBootServicesTableLib
   UefiDriverEntryPoint

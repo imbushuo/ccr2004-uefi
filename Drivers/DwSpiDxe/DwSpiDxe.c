@@ -92,14 +92,39 @@ extern EFI_GUID  gEdk2JedecSfdpSpiDxeDriverGuid;
 // Low-level helpers
 // ---------------------------------------------------------------------------
 
+#define DW_SPI_LOG_ENABLED  0
+
+/**
+  Write a formatted message directly to the serial port.
+**/
 STATIC
-UINT32
+VOID
+SpiLog (
+  IN CONST CHAR8  *Fmt,
+  ...
+  )
+{
+#if DW_SPI_LOG_ENABLED
+  VA_LIST  Args;
+  CHAR8    Buf[128];
+  UINTN    Len;
+
+  VA_START (Args, Fmt);
+  Len = AsciiVSPrint (Buf, sizeof (Buf), Fmt, Args);
+  VA_END (Args);
+
+  SerialPortWrite ((UINT8 *)Buf, Len);
+#endif
+}
+
+STATIC
+UINT16
 DwSpiRead (
   IN DW_SPI_CONTEXT  *Ctx,
   IN UINTN           Offset
   )
 {
-  return MmioRead32 (Ctx->BaseAddress + Offset);
+  return MmioRead16 (Ctx->BaseAddress + Offset);
 }
 
 STATIC
@@ -107,17 +132,17 @@ VOID
 DwSpiWrite (
   IN DW_SPI_CONTEXT  *Ctx,
   IN UINTN           Offset,
-  IN UINT32          Value
+  IN UINT16          Value
   )
 {
-  MmioWrite32 (Ctx->BaseAddress + Offset, Value);
+  MmioWrite16 (Ctx->BaseAddress + Offset, Value);
 }
 
 STATIC
 VOID
 DwSpiEnable (
   IN DW_SPI_CONTEXT  *Ctx,
-  IN UINT32          Enable
+  IN UINT16          Enable
   )
 {
   DwSpiWrite (Ctx, DW_SPI_SSIENR, Enable);
@@ -140,8 +165,8 @@ DwSpiDetectFifoDepth (
   UINT32  i;
 
   for (i = 1; i < 256; i++) {
-    DwSpiWrite (Ctx, DW_SPI_TXFLTR, i);
-    if (DwSpiRead (Ctx, DW_SPI_TXFLTR) != i) {
+    DwSpiWrite (Ctx, DW_SPI_TXFLTR, (UINT16)i);
+    if (DwSpiRead (Ctx, DW_SPI_TXFLTR) != (UINT16)i) {
       break;
     }
   }
@@ -175,6 +200,11 @@ DwSpiHwInit (
   // Detect FIFO depth
   //
   Ctx->FifoLen = DwSpiDetectFifoDepth (Ctx);
+  if (Ctx->FifoLen == 0 || Ctx->FifoLen > 256) {
+    Ctx->FifoLen = DW_SPI_FIFO_DEPTH;
+  }
+
+  SpiLog ("[DwSpi] HwInit: FIFO depth %u\r\n", Ctx->FifoLen);
 
   //
   // Clear any pending interrupts
@@ -217,7 +247,7 @@ DwSpiSetClock (
     ClkDiv++;
   }
 
-  DwSpiWrite (Ctx, DW_SPI_BAUDR, ClkDiv);
+  DwSpiWrite (Ctx, DW_SPI_BAUDR, (UINT16)ClkDiv);
   *ActualHz = DW_SPI_REF_CLOCK_HZ / ClkDiv;
 
   return EFI_SUCCESS;
@@ -329,6 +359,171 @@ DwSpiClock (
 }
 
 /**
+  Perform a WRITE_THEN_READ transaction using TX+RX mode.
+
+  Follows the Alpine HAL al_spi_read() algorithm:
+  1. Disable SPI, set TMOD=TX+RX, SER=0, ssi_ovr=0x0F, enable SPI
+  2. Push command bytes into TX FIFO (no CS yet — nothing clocks out)
+  3. Pre-fill TX FIFO with dummy 0xFF bytes
+  4. Assert CS via SER — clocking starts
+  5. Main loop: feed dummy TX, drain RX (discard cmd echoes, store data)
+  6. Wait idle, deassert CS, clear ssi_ovr, disable SPI
+**/
+STATIC
+EFI_STATUS
+DwSpiWriteThenRead (
+  IN  DW_SPI_CONTEXT  *Ctx,
+  IN  UINT16          Ctrl0Base,
+  IN  UINT8           *WriteBuffer,
+  IN  UINT32          WriteBytes,
+  OUT UINT8           *ReadBuffer,
+  IN  UINT32          ReadBytes
+  )
+{
+  UINT32  DummyTx;
+  UINT32  CmdEcho;
+  UINT32  ByteLen;
+  UINT32  TxUsed;
+  UINT32  RxUsed;
+  UINT32  RxAvail;
+  UINT32  Watchdog;
+  UINT32  CmdIdx;
+  UINT16  Ctrl0;
+
+  DummyTx = ReadBytes;
+  CmdEcho = WriteBytes;
+  ByteLen = ReadBytes;
+
+  SpiLog ("[DwSpi] WriteThenRead: cmd %u bytes, read %u bytes\r\n",
+          WriteBytes, ReadBytes);
+
+  //
+  // 1. Disable SPI, configure TMOD=TX+RX
+  //
+  DwSpiEnable (Ctx, 0);
+
+  Ctrl0 = Ctrl0Base | (DW_SPI_TMOD_TR << DW_SPI_CTRL0_TMOD_SHIFT);
+  DwSpiWrite (Ctx, DW_SPI_CTRL0, Ctrl0);
+
+  //
+  // 2. SER=0 (no CS yet), ssi_ovr=0x0F (hold CS when SER is set)
+  //
+  DwSpiWrite (Ctx, DW_SPI_SER, 0);
+  DwSpiWrite (Ctx, DW_SPI_SSI_OVR, DW_SPI_SSI_OVR_CS_ALL);
+
+  //
+  // 3. Enable SPI (no CS asserted, so nothing clocks)
+  //
+  DwSpiEnable (Ctx, 1);
+
+  //
+  // 4. Push command bytes into TX FIFO
+  //
+  for (CmdIdx = 0; CmdIdx < WriteBytes; CmdIdx++) {
+    while ((DwSpiRead (Ctx, DW_SPI_SR) & DW_SPI_SR_TFNF) == 0) {
+      MicroSecondDelay (DW_SPI_POLL_INTERVAL_US);
+    }
+    DwSpiWrite (Ctx, DW_SPI_DR, (UINT16)WriteBuffer[CmdIdx]);
+  }
+
+  //
+  // 5. Pre-fill TX FIFO with dummy bytes before asserting CS
+  //
+  while (DummyTx > 0) {
+    if ((DwSpiRead (Ctx, DW_SPI_SR) & DW_SPI_SR_TFNF) == 0) {
+      break;
+    }
+    DwSpiWrite (Ctx, DW_SPI_DR, 0xFF);
+    DummyTx--;
+  }
+
+  //
+  // 6. Assert CS — clocking begins
+  //
+  DwSpiWrite (Ctx, DW_SPI_SER, (UINT16)(BIT0 << Ctx->ActiveCs));
+
+  SpiLog ("[DwSpi] WriteThenRead: CS asserted, dummy remaining %u\r\n", DummyTx);
+
+  //
+  // 7. Main loop: interleave dummy TX writes and RX FIFO draining
+  //
+  Watchdog = 0;
+  while (ByteLen > 0) {
+    TxUsed  = DwSpiRead (Ctx, DW_SPI_TXFLR);
+    RxUsed  = RxAvail = DwSpiRead (Ctx, DW_SPI_RXFLR);
+
+    if (RxAvail > 0) {
+      Watchdog = 0;
+    } else {
+      Watchdog++;
+      if ((Watchdog % 100) == 0) {
+        MicroSecondDelay (1);
+      }
+    }
+
+    if (Watchdog >= 100000) {
+      SpiLog ("[DwSpi] WriteThenRead: TIMEOUT bytelen=%u\r\n", ByteLen);
+      goto Cleanup;
+    }
+
+    //
+    // Feed more dummy bytes while FIFO has space.
+    // RxUsed tracks total RX occupancy (for back-pressure).
+    // RxAvail stays at the register snapshot (for drain loop).
+    //
+    while (DummyTx > 0 && TxUsed < Ctx->FifoLen && RxUsed < Ctx->FifoLen) {
+      DwSpiWrite (Ctx, DW_SPI_DR, 0xFF);
+      DummyTx--;
+      TxUsed++;
+      RxUsed++;
+    }
+
+    //
+    // Drain RX FIFO — only read entries that were present at loop top
+    //
+    while (RxAvail > 0) {
+      UINT8  Byte;
+
+      Byte = (UINT8)DwSpiRead (Ctx, DW_SPI_DR);
+
+      if (CmdEcho > 0) {
+        //
+        // Discard echoed command byte (TX+RX mode echoes TX data)
+        //
+        CmdEcho--;
+      } else {
+        *ReadBuffer++ = Byte;
+        ByteLen--;
+      }
+
+      RxAvail--;
+    }
+  }
+
+  //
+  // 8. Wait for controller to go idle
+  //
+  DwSpiPollBusy (Ctx);
+
+Cleanup:
+  //
+  // 9. Deassert CS, clear override, disable
+  //
+  DwSpiWrite (Ctx, DW_SPI_SER, 0);
+  DwSpiWrite (Ctx, DW_SPI_SSI_OVR, 0);
+  DwSpiEnable (Ctx, 0);
+  DwSpiRead (Ctx, DW_SPI_ICR);
+
+  if (ByteLen > 0) {
+    SpiLog ("[DwSpi] WriteThenRead: FAIL, %u bytes unread\r\n", ByteLen);
+    return EFI_TIMEOUT;
+  }
+
+  SpiLog ("[DwSpi] WriteThenRead: done\r\n");
+  return EFI_SUCCESS;
+}
+
+/**
   Perform a SPI transaction.
 **/
 STATIC
@@ -341,7 +536,7 @@ DwSpiTransaction (
 {
   DW_SPI_CONTEXT  *Ctx;
   EFI_STATUS      Status;
-  UINT32          Ctrl0;
+  UINT16          Ctrl0;
   UINT32          Tmod;
   UINT32          FrameSize;
   UINT32          WriteBytes;
@@ -350,7 +545,7 @@ DwSpiTransaction (
   UINT8           *ReadBuffer;
   UINT32          Written;
   UINT32          Read;
-  UINT32          Sr;
+  UINT16          Sr;
 
   if ((This == NULL) || (BusTransaction == NULL)) {
     return EFI_INVALID_PARAMETER;
@@ -373,6 +568,9 @@ DwSpiTransaction (
   WriteBuffer = BusTransaction->WriteBuffer;
   ReadBuffer  = BusTransaction->ReadBuffer;
   FrameSize   = BusTransaction->FrameSize;
+
+  SpiLog ("[DwSpi] Transaction: type=%u write=%u read=%u\r\n",
+          BusTransaction->TransactionType, WriteBytes, ReadBytes);
 
   //
   // Determine TMOD from TransactionType
@@ -400,12 +598,36 @@ DwSpiTransaction (
       }
       break;
     case SPI_TRANSACTION_WRITE_THEN_READ:
-      Tmod = DW_SPI_TMOD_EPROMREAD;
+      //
+      // Uses TX+RX mode with deferred CS — handled by dedicated helper
+      //
       if ((WriteBytes == 0) || (WriteBuffer == NULL) || (ReadBytes == 0) || (ReadBuffer == NULL)) {
         Status = EFI_INVALID_PARAMETER;
         goto Exit;
       }
-      break;
+      {
+        UINT16  Ctrl0Base;
+
+        Ctrl0Base = (UINT16)((FrameSize - 1) & DW_SPI_CTRL0_DFS_MASK);
+        if (BusTransaction->SpiPeripheral != NULL) {
+          if (BusTransaction->SpiPeripheral->ClockPhase) {
+            Ctrl0Base |= DW_SPI_CTRL0_SCPH;
+          }
+          if (BusTransaction->SpiPeripheral->ClockPolarity) {
+            Ctrl0Base |= DW_SPI_CTRL0_SCOL;
+          }
+        }
+
+        Status = DwSpiWriteThenRead (
+                   Ctx,
+                   Ctrl0Base,
+                   WriteBuffer,
+                   WriteBytes,
+                   ReadBuffer,
+                   ReadBytes
+                   );
+      }
+      goto Exit;
     default:
       Status = EFI_UNSUPPORTED;
       goto Exit;
@@ -419,8 +641,7 @@ DwSpiTransaction (
   //
   // Configure CTRL0
   //
-  Ctrl0 = (FrameSize - 1) & DW_SPI_CTRL0_DFS_MASK;         // DFS
-  // FRF = 0 (Motorola SPI) — bits [5:4] already 0
+  Ctrl0 = (UINT16)((FrameSize - 1) & DW_SPI_CTRL0_DFS_MASK);
   if (BusTransaction->SpiPeripheral != NULL) {
     if (BusTransaction->SpiPeripheral->ClockPhase) {
       Ctrl0 |= DW_SPI_CTRL0_SCPH;
@@ -429,21 +650,21 @@ DwSpiTransaction (
       Ctrl0 |= DW_SPI_CTRL0_SCOL;
     }
   }
-  Ctrl0 |= (Tmod << DW_SPI_CTRL0_TMOD_SHIFT);
+  Ctrl0 |= (UINT16)(Tmod << DW_SPI_CTRL0_TMOD_SHIFT);
 
   DwSpiWrite (Ctx, DW_SPI_CTRL0, Ctrl0);
 
   //
-  // For RO/EPROMREAD: set number of frames to receive
+  // For RO: set number of frames to receive
   //
-  if ((Tmod == DW_SPI_TMOD_RO) || (Tmod == DW_SPI_TMOD_EPROMREAD)) {
-    DwSpiWrite (Ctx, DW_SPI_CTRL1, ReadBytes - 1);
+  if (Tmod == DW_SPI_TMOD_RO) {
+    DwSpiWrite (Ctx, DW_SPI_CTRL1, (UINT16)(ReadBytes - 1));
   }
 
   //
   // Set slave select
   //
-  DwSpiWrite (Ctx, DW_SPI_SER, BIT0 << Ctx->ActiveCs);
+  DwSpiWrite (Ctx, DW_SPI_SER, (UINT16)(BIT0 << Ctx->ActiveCs));
 
   //
   // Enable controller
@@ -466,7 +687,7 @@ DwSpiTransaction (
           MicroSecondDelay (DW_SPI_POLL_INTERVAL_US);
         }
 
-        DwSpiWrite (Ctx, DW_SPI_DR, WriteBuffer[Written]);
+        DwSpiWrite (Ctx, DW_SPI_DR, (UINT16)WriteBuffer[Written]);
       }
 
       //
@@ -496,29 +717,6 @@ DwSpiTransaction (
       Status = DwSpiPollBusy (Ctx);
       break;
 
-    case DW_SPI_TMOD_EPROMREAD:
-      //
-      // Write Then Read: write command/address bytes, then read data
-      //
-      for (Written = 0; Written < WriteBytes; Written++) {
-        while ((DwSpiRead (Ctx, DW_SPI_SR) & DW_SPI_SR_TFNF) == 0) {
-          MicroSecondDelay (DW_SPI_POLL_INTERVAL_US);
-        }
-
-        DwSpiWrite (Ctx, DW_SPI_DR, WriteBuffer[Written]);
-      }
-
-      for (Read = 0; Read < ReadBytes; Read++) {
-        while ((DwSpiRead (Ctx, DW_SPI_SR) & DW_SPI_SR_RFNE) == 0) {
-          MicroSecondDelay (DW_SPI_POLL_INTERVAL_US);
-        }
-
-        ReadBuffer[Read] = (UINT8)DwSpiRead (Ctx, DW_SPI_DR);
-      }
-
-      Status = DwSpiPollBusy (Ctx);
-      break;
-
     case DW_SPI_TMOD_TR:
       //
       // Full Duplex: interleave writes and reads
@@ -529,7 +727,7 @@ DwSpiTransaction (
         Sr = DwSpiRead (Ctx, DW_SPI_SR);
 
         if ((Written < WriteBytes) && ((Sr & DW_SPI_SR_TFNF) != 0)) {
-          DwSpiWrite (Ctx, DW_SPI_DR, WriteBuffer[Written]);
+          DwSpiWrite (Ctx, DW_SPI_DR, (UINT16)WriteBuffer[Written]);
           Written++;
         }
 

@@ -27,6 +27,8 @@
 #include <Library/BaseMemoryLib.h>
 #include <Library/DebugLib.h>
 #include <Library/MemoryAllocationLib.h>
+#include <Library/PrintLib.h>
+#include <Library/SerialPortLib.h>
 #include <Library/TimerLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiDriverEntryPoint.h>
@@ -57,12 +59,37 @@
 #define WIP_POLL_DELAY_US   100
 #define WIP_POLL_MAX        100000  /* 10 seconds max */
 
+/* Maximum bytes per SPI read transaction.
+ * Use 4KB chunks for progress logging and bounded transaction sizes. */
+#define SPI_READ_CHUNK_SIZE  4096
+
 /* Driver instance */
 typedef struct {
   EFI_SPI_NOR_FLASH_PROTOCOL  Protocol;
   EFI_SPI_IO_PROTOCOL         *SpiIo;
   UINT8                       DeviceId[3];
 } SPI_NOR_FLASH_INSTANCE;
+
+/**
+  Write a formatted message directly to the serial port.
+**/
+STATIC
+VOID
+SpiLog (
+  IN CONST CHAR8  *Fmt,
+  ...
+  )
+{
+  VA_LIST  Args;
+  CHAR8    Buf[128];
+  UINTN    Len;
+
+  VA_START (Args, Fmt);
+  Len = AsciiVSPrint (Buf, sizeof (Buf), Fmt, Args);
+  VA_END (Args);
+
+  SerialPortWrite ((UINT8 *)Buf, Len);
+}
 
 /* ---------- Low-level SPI helpers ---------- */
 
@@ -209,6 +236,7 @@ SpiNorGetFlashId (
 /**
   ReadData — Read data from flash.
   Uses normal READ (0x03) with 3-byte address.
+  Chunks large reads to stay within DW SSI CTRL1.NDF limits.
 **/
 STATIC
 EFI_STATUS
@@ -221,6 +249,9 @@ SpiNorReadData (
   )
 {
   SPI_NOR_FLASH_INSTANCE  *Instance;
+  EFI_STATUS              Status;
+  UINT32                  Offset;
+  UINT32                  Chunk;
   UINT8                   Cmd[4];
 
   if (This == NULL || Buffer == NULL) {
@@ -232,12 +263,31 @@ SpiNorReadData (
 
   Instance = (SPI_NOR_FLASH_INSTANCE *)This;
 
-  Cmd[0] = CMD_READ_DATA;
-  Cmd[1] = (UINT8)(FlashAddress >> 16);
-  Cmd[2] = (UINT8)(FlashAddress >> 8);
-  Cmd[3] = (UINT8)(FlashAddress);
+  SpiLog ("[SpiNor] ReadData: addr=0x%06x len=0x%x\r\n", FlashAddress, LengthInBytes);
 
-  return SpiWriteThenRead (Instance->SpiIo, Cmd, 4, Buffer, LengthInBytes);
+  for (Offset = 0; Offset < LengthInBytes; Offset += Chunk) {
+    UINT32  Addr;
+
+    Chunk = LengthInBytes - Offset;
+    if (Chunk > SPI_READ_CHUNK_SIZE) {
+      Chunk = SPI_READ_CHUNK_SIZE;
+    }
+
+    Addr = FlashAddress + Offset;
+    Cmd[0] = CMD_READ_DATA;
+    Cmd[1] = (UINT8)(Addr >> 16);
+    Cmd[2] = (UINT8)(Addr >> 8);
+    Cmd[3] = (UINT8)(Addr);
+
+    Status = SpiWriteThenRead (Instance->SpiIo, Cmd, 4, Buffer + Offset, Chunk);
+    if (EFI_ERROR (Status)) {
+      SpiLog ("[SpiNor] ReadData: FAIL at offset 0x%x: %d\r\n", Offset, (INT32)Status);
+      return Status;
+    }
+  }
+
+  SpiLog ("[SpiNor] ReadData: done\r\n");
+  return EFI_SUCCESS;
 }
 
 /**

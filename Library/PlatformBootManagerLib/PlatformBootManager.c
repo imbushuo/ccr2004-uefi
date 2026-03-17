@@ -29,6 +29,14 @@ STATIC EFI_GUID mUefiShellFileGuid = {
   { 0xAD, 0x65, 0xE0, 0x52, 0x68, 0xD0, 0xB4, 0xD1 }
 };
 
+//
+// RouterBootApp FILE_GUID from Application/RouterBootApp/RouterBootApp.inf
+//
+STATIC EFI_GUID mRouterBootAppFileGuid = {
+  0x4a3b8c2d, 0x91e7, 0x4f56,
+  { 0xb0, 0xd3, 0x7e, 0x6f, 0x5a, 0x1c, 0x9d, 0x28 }
+};
+
 /**
   Find all SimpleTextOut/SimpleTextIn handles and register them
   in the ConOut/ConIn/ErrOut console variables so BDS can use them.
@@ -282,6 +290,16 @@ PlatformBootManagerAfterConsole (
     &mUefiShellFileGuid,
     L"UEFI Shell",
     LOAD_OPTION_ACTIVE | LOAD_OPTION_CATEGORY_APP
+    );
+
+  //
+  // Register Factory RouterBOOT as a boot option (CATEGORY_APP only,
+  // not ACTIVE — appears in Boot Manager menu but is never auto-booted).
+  //
+  PlatformRegisterFvBootOption (
+    &mRouterBootAppFileGuid,
+    L"Factory RouterBOOT",
+    LOAD_OPTION_CATEGORY_APP
     );
 
   Print (L"Press ESC or F2 for Setup.\n");

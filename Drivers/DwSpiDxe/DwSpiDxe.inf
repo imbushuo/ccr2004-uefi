@@ -33,6 +33,8 @@
   DebugLib
   IoLib
   MemoryAllocationLib
+  PrintLib
+  SerialPortLib
   TimerLib
   UefiBootServicesTableLib
   UefiDriverEntryPoint

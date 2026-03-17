@@ -1,0 +1,42 @@
+## @file
+#  RouterBOOT trampoline application for MikroTik CCR2004.
+#
+#  Reads the factory RouterBOOT image from SPI flash, validates the
+#  Alpine HAL flash object header/footer checksums, then exits UEFI
+#  boot services and chain-loads RouterBOOT at its native load address.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001b
+  BASE_NAME                      = RouterBootApp
+  FILE_GUID                      = 4a3b8c2d-91e7-4f56-b0d3-7e6f5a1c9d28
+  MODULE_TYPE                    = UEFI_APPLICATION
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = RouterBootAppEntry
+
+[Sources]
+  RouterBootApp.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ArmPkg/ArmPkg.dec
+
+[LibraryClasses]
+  ArmLib
+  BaseLib
+  BaseMemoryLib
+  CacheMaintenanceLib
+  DebugLib
+  MemoryAllocationLib
+  SerialPortLib
+  UefiApplicationEntryPoint
+  UefiBootServicesTableLib
+  UefiLib
+
+[Protocols]
+  gEfiSpiNorFlashProtocolGuid    ## CONSUMES

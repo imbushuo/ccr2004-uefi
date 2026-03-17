@@ -428,6 +428,11 @@
   Platform/MikroTik/CCR2004/Application/BoardI2cEepromProbeApp/BoardI2cEepromProbeApp.inf
 
   #
+  # RouterBOOT trampoline (chain-loads factory RouterBOOT from SPI flash)
+  #
+  Platform/MikroTik/CCR2004/Application/RouterBootApp/RouterBootApp.inf
+
+  #
   # Ethernet (Annapurna Labs — HAL-based driver)
   #
   Platform/MikroTik/CCR2004/Drivers/AlEthNextDxe/AlEthNextDxe.inf

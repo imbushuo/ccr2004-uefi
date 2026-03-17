@@ -19,6 +19,8 @@
 #include <Library/IoLib.h>
 #include <Library/MemoryAllocationLib.h>
 #include <Library/TimerLib.h>
+#include <Library/PrintLib.h>
+#include <Library/SerialPortLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
 
@@ -46,6 +48,17 @@
 #define DW_SPI_IDR       0x58
 #define DW_SPI_VERSION   0x5C
 #define DW_SPI_DR        0x60
+#define DW_SPI_SSI_OVR   0xF4   // Alpine-specific CS override register
+
+//
+// SSI_OVR bits — bits [3:0] force CS lines to follow SER
+//
+#define DW_SPI_SSI_OVR_CS_ALL  0x0F
+
+//
+// Default FIFO depth fallback (matches Alpine HAL)
+//
+#define DW_SPI_FIFO_DEPTH  32
 
 //
 // CTRL0 bit fields

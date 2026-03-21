@@ -124,6 +124,30 @@ AlNandDmaInit (
   }
 
   //
+  // Allocate DMA command sequence buffer
+  //
+  Status = AlNandAllocDmaBuffer (EFI_PAGE_SIZE,
+                                 &Ctx->CmdSeqBase, &Ctx->CmdSeqPhys);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "AlNandDxe: DMA cmd seq alloc failed: %r\n", Status));
+    return Status;
+  }
+
+  //
+  // Enable bus master on the SSM RAID unit via its adapter config space
+  // (at the device base, NOT the ECAM which is inaccessible on this board)
+  //
+  {
+    UINT32  PciCmd;
+    PciCmd = MmioRead32 (AL_SSM_RAID_ADAPTER_BASE + 0x04);
+    DEBUG ((DEBUG_WARN, "AlNandDxe: SSM RAID adapter CMD=0x%08x\n", PciCmd));
+    PciCmd |= BIT2;  // Bus Master Enable
+    MmioWrite32 (AL_SSM_RAID_ADAPTER_BASE + 0x04, PciCmd);
+    PciCmd = MmioRead32 (AL_SSM_RAID_ADAPTER_BASE + 0x04);
+    DEBUG ((DEBUG_WARN, "AlNandDxe: SSM RAID adapter CMD after BME=0x%08x\n", PciCmd));
+  }
+
+  //
   // Initialize SSM DMA
   //
   ZeroMem (&SsmParams, sizeof (SsmParams));
@@ -182,7 +206,103 @@ AlNandDmaInit (
   //
   al_raid_init (&Ctx->SsmDma, (void *)(UINTN)AL_SSM_RAID_APP_BASE);
 
-  DEBUG ((DEBUG_INFO, "AlNandDxe: SSM RAID DMA initialized\n"));
+  //
+  // DMA self-test: memory-to-memory copy via RAID engine
+  //
+  {
+    UINT32                     *SrcBuf;
+    UINT32                     *DstBuf;
+    struct al_raid_transaction Xaction;
+    struct al_block            SrcBlock;
+    struct al_block            DstBlock;
+    struct al_buf              SrcAlBuf;
+    struct al_buf              DstAlBuf;
+    uint32_t                   CompStatus;
+    int                        Ret;
+    UINTN                      i;
+    BOOLEAN                    Pass;
+
+    SrcBuf = (UINT32 *)Ctx->CmdSeqBase;
+    DstBuf = (UINT32 *)((UINTN)Ctx->DmaBufBase + 2048);  // use upper half
+
+    //
+    // Fill source with pattern, clear destination
+    //
+    for (i = 0; i < 16; i++) {
+      SrcBuf[i] = 0xDEAD0000 | (UINT32)i;
+    }
+    for (i = 0; i < 16; i++) {
+      DstBuf[i] = 0;
+    }
+
+    SrcAlBuf.addr = (al_phys_addr_t)Ctx->CmdSeqPhys;
+    SrcAlBuf.len  = 64;
+    DstAlBuf.addr = (al_phys_addr_t)(Ctx->DmaBufPhys + 2048);
+    DstAlBuf.len  = 64;
+
+    SrcBlock.bufs = &SrcAlBuf;
+    SrcBlock.num  = 1;
+    DstBlock.bufs = &DstAlBuf;
+    DstBlock.num  = 1;
+
+    ZeroMem (&Xaction, sizeof (Xaction));
+    Xaction.op             = AL_RAID_OP_MEM_CPY;
+    Xaction.flags          = AL_SSM_BARRIER | AL_SSM_INTERRUPT;
+    Xaction.srcs_blocks    = &SrcBlock;
+    Xaction.num_of_srcs    = 1;
+    Xaction.total_src_bufs = 1;
+    Xaction.dsts_blocks    = &DstBlock;
+    Xaction.num_of_dsts    = 1;
+    Xaction.total_dst_bufs = 1;
+
+    Err = al_raid_dma_prepare (&Ctx->SsmDma, 0, &Xaction);
+    if (Err != 0) {
+      DEBUG ((DEBUG_WARN, "AlNandDxe: DMA self-test prepare failed: %d\n", Err));
+      return EFI_DEVICE_ERROR;
+    }
+
+    Err = al_raid_dma_action (&Ctx->SsmDma, 0, Xaction.tx_descs_count);
+    if (Err != 0) {
+      DEBUG ((DEBUG_WARN, "AlNandDxe: DMA self-test action failed: %d\n", Err));
+      return EFI_DEVICE_ERROR;
+    }
+
+    //
+    // Poll for completion (short timeout since it's just 64 bytes)
+    //
+    Ret = 0;
+    for (i = 0; i < 100000 && Ret == 0; i++) {
+      Ret = al_raid_dma_completion (&Ctx->SsmDma, 0, &CompStatus);
+      if (Ret == 0 && i >= 1000) {
+        MicroSecondDelay (1);
+      }
+    }
+
+    if (Ret <= 0) {
+      DEBUG ((DEBUG_WARN, "AlNandDxe: DMA self-test FAILED: no completion\n"));
+      return EFI_DEVICE_ERROR;
+    }
+
+    //
+    // Verify destination
+    //
+    Pass = TRUE;
+    for (i = 0; i < 16; i++) {
+      if (DstBuf[i] != (0xDEAD0000 | (UINT32)i)) {
+        Pass = FALSE;
+        break;
+      }
+    }
+
+    DEBUG ((DEBUG_WARN, "AlNandDxe: DMA self-test %a (status=0x%x)\n",
+      Pass ? "PASSED" : "FAILED", CompStatus));
+
+    if (!Pass) {
+      return EFI_DEVICE_ERROR;
+    }
+  }
+
+  DEBUG ((DEBUG_WARN, "AlNandDxe: SSM RAID DMA initialized\n"));
   return EFI_SUCCESS;
 }
 
@@ -269,6 +389,15 @@ AlNandWaitDmaCompletion (
 
 /**
   Read a single NAND page via DMA.
+
+  Follows the HAL-recommended full-DMA flow:
+    1. al_nand_cw_config (PIO register writes, fast)
+    2. al_nand_cmd_seq_execute_dma (DMA cmd seq to NFC, no interrupt)
+    3. al_nand_data_buff_read_dma (DMA data from NFC, with interrupt)
+    4. al_nand_transaction_completion x2
+
+  Both commands and data go through the RAID DMA engine with BARRIER
+  flag ensuring sequential execution.
 **/
 STATIC
 EFI_STATUS
@@ -278,16 +407,19 @@ AlNandReadPageDma (
   OUT UINT8            *Buffer
   )
 {
-  uint32_t       CmdSeqBuf[AL_NAND_MAX_CMD_SEQ_ENTRIES];
+  uint32_t       *CmdSeq;
   int            NumEntries;
   uint32_t       CwSize;
   uint32_t       CwCount;
+  struct al_buf  CmdBuf;
   struct al_buf  DataBuf;
   int            Err;
+  EFI_STATUS     Status;
 
   //
-  // Generate page read command sequence
+  // Generate page read command sequence into DMA-accessible buffer
   //
+  CmdSeq = (uint32_t *)Ctx->CmdSeqBase;
   NumEntries = AL_NAND_MAX_CMD_SEQ_ENTRIES;
   Err = al_nand_cmd_seq_gen_page_read (
           &Ctx->NandObj,
@@ -295,7 +427,7 @@ AlNandReadPageDma (
           (int)Page,      // row = page number
           (int)Ctx->PageSize,
           0,              // ecc_enabled = 0 (BENAND)
-          CmdSeqBuf,
+          CmdSeq,
           &NumEntries,
           &CwSize,
           &CwCount
@@ -306,26 +438,24 @@ AlNandReadPageDma (
   }
 
   //
-  // Configure codeword (PIO - just register writes, fast)
+  // Configure codeword (PIO register writes, fast)
   //
   al_nand_cw_config (&Ctx->NandObj, CwSize, CwCount);
 
   //
-  // Execute command sequence via PIO (small data, reliable)
+  // DMA command sequence to NFC (no interrupt, barrier ensures ordering)
   //
-  al_nand_cmd_seq_execute (&Ctx->NandObj, CmdSeqBuf, NumEntries);
+  CmdBuf.addr = (al_phys_addr_t)Ctx->CmdSeqPhys;
+  CmdBuf.len  = (uint32_t)(NumEntries * sizeof(uint32_t));
 
-  //
-  // Wait for NFC to have data ready
-  //
-  EFI_STATUS Status = AlNandPollIntStatus (&Ctx->NandObj,
-                        AL_NAND_INTR_STATUS_BUF_RDRDY);
-  if (EFI_ERROR (Status)) {
-    return Status;
+  Err = al_nand_cmd_seq_execute_dma (&Ctx->NandObj, &CmdBuf, 0);
+  if (Err != 0) {
+    DEBUG ((DEBUG_ERROR, "AlNandDxe: cmd_seq_execute_dma failed: %d\n", Err));
+    return EFI_DEVICE_ERROR;
   }
 
   //
-  // DMA read from NFC data buffer to our DMA bounce buffer
+  // DMA read from NFC data buffer (with interrupt for completion)
   //
   DataBuf.addr = (al_phys_addr_t)Ctx->DmaBufPhys;
   DataBuf.len  = Ctx->PageSize;
@@ -337,9 +467,9 @@ AlNandReadPageDma (
   }
 
   //
-  // Wait for DMA completion
+  // Wait for both completions (cmd_seq + data_read)
   //
-  Status = AlNandWaitDmaCompletion (&Ctx->NandObj, 1);
+  Status = AlNandWaitDmaCompletion (&Ctx->NandObj, 2);
   if (EFI_ERROR (Status)) {
     return Status;
   }
@@ -665,18 +795,24 @@ AlNandFlashReadPageBody (
                           (CwSize >> 8) & 0xFF);
   }
 
-  al_nand_cmd_seq_execute (&Ctx->NandObj, CmdSeqBuf, Idx);
-
   //
   // Read data - use DMA if available, PIO otherwise
   //
   if (Ctx->DmaAvailable) {
+    struct al_buf  CmdBuf;
     struct al_buf  DataBuf;
     EFI_STATUS     Status;
 
-    Status = AlNandPollIntStatus (&Ctx->NandObj, AL_NAND_INTR_STATUS_BUF_RDRDY);
-    if (EFI_ERROR (Status)) {
-      return Status;
+    //
+    // Copy command sequence to DMA buffer and execute via DMA
+    //
+    CopyMem (Ctx->CmdSeqBase, CmdSeqBuf, Idx * sizeof(uint32_t));
+
+    CmdBuf.addr = (al_phys_addr_t)Ctx->CmdSeqPhys;
+    CmdBuf.len  = (uint32_t)(Idx * sizeof(uint32_t));
+
+    if (al_nand_cmd_seq_execute_dma (&Ctx->NandObj, &CmdBuf, 0) != 0) {
+      return EFI_DEVICE_ERROR;
     }
 
     DataBuf.addr = (al_phys_addr_t)Ctx->DmaBufPhys;
@@ -686,13 +822,14 @@ AlNandFlashReadPageBody (
       return EFI_DEVICE_ERROR;
     }
 
-    Status = AlNandWaitDmaCompletion (&Ctx->NandObj, 1);
+    Status = AlNandWaitDmaCompletion (&Ctx->NandObj, 2);
     if (EFI_ERROR (Status)) {
       return Status;
     }
 
     CopyMem (Buffer, Ctx->DmaBufBase, Ctx->PageSize);
   } else {
+    al_nand_cmd_seq_execute (&Ctx->NandObj, CmdSeqBuf, Idx);
     int Err = al_nand_data_buff_read (&Ctx->NandObj, (int)Ctx->PageSize,
                                        0, 0, Buffer);
     if (Err != 0) {

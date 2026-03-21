@@ -41,6 +41,10 @@
 #define AL_SSM_RAID_UDMA_BASE         0xFC520000  // AL_SSM_UDMA_BASE(1,0)
 #define AL_SSM_RAID_APP_BASE          0xFC505000  // AL_SSM_BASE(1) + 0x5000
 
+// SSM RAID adapter base (AL_SSM_BASE(1) = SB_BASE + 5*0x100000)
+// PCI config space is at the start of this region
+#define AL_SSM_RAID_ADAPTER_BASE      0xFC500000
+
 //
 // Toshiba BENAND 1Gbit (128MB) parameters
 //
@@ -124,6 +128,8 @@ typedef struct {
   EFI_PHYSICAL_ADDRESS      DescRingPhys;       // Descriptor rings physical
   VOID                      *DmaBufBase;        // DMA page buffer virtual
   EFI_PHYSICAL_ADDRESS      DmaBufPhys;         // DMA page buffer physical
+  VOID                      *CmdSeqBase;        // DMA cmd sequence buffer virtual
+  EFI_PHYSICAL_ADDRESS      CmdSeqPhys;         // DMA cmd sequence buffer physical
 
   //
   // Device parameters

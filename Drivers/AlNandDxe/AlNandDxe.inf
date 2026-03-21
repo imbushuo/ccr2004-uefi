@@ -3,6 +3,7 @@
 #
 #  Drives the AL NAND controller on the Alpine V2 SoC with Toshiba BENAND
 #  flash. Produces EFI_BLOCK_IO_PROTOCOL (read-only) exposing raw NAND pages.
+#  Uses AL HAL with SSM RAID DMA for accelerated page reads.
 #
 #  Copyright (c) 2024, MikroTik. All rights reserved.
 #
@@ -27,8 +28,10 @@
   Platform/MikroTik/CCR2004/CCR2004.dec
 
 [LibraryClasses]
+  AlpineHalLib
   BaseLib
   BaseMemoryLib
+  CacheMaintenanceLib
   DebugLib
   IoLib
   MemoryAllocationLib
@@ -39,8 +42,12 @@
 
 [Protocols]
   gEfiBlockIoProtocolGuid                       ## PRODUCES
+  gEfiCpuArchProtocolGuid                       ## CONSUMES
   gEfiDevicePathProtocolGuid                    ## PRODUCES
   gMikroTikNandFlashProtocolGuid                ## PRODUCES
 
 [Depex]
-  TRUE
+  gEfiCpuArchProtocolGuid
+
+[BuildOptions]
+  GCC:*_*_AARCH64_CC_FLAGS = -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/common -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/udma -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/iofic -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/io_fabric -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/ssm -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/pbs -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/ssm -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/pbs -include al_hal_plat_types.h -include al_hal_plat_services.h

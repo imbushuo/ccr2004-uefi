@@ -1,8 +1,9 @@
 ## @file
-#  Alpine Hardware Abstraction Layer library for Ethernet.
+#  Alpine Hardware Abstraction Layer library.
 #
 #  Wraps the Annapurna Labs alpine_hal source files with UEFI
 #  platform shim headers so the HAL can be compiled as an EDK2 library.
+#  Includes Ethernet, NAND, SSM/RAID DMA, and UDMA drivers.
 #
 #  Copyright (c) 2024, MikroTik. All rights reserved.
 #
@@ -42,6 +43,17 @@
   # IO Fabric driver
   drivers/io_fabric/al_hal_unit_adapter.c
 
+  # M2M UDMA driver
+  drivers/udma/al_hal_m2m_udma.c
+
+  # SSM / RAID DMA drivers
+  drivers/ssm/al_hal_ssm.c
+  drivers/ssm/al_hal_ssm_raid.c
+
+  # NAND HAL drivers
+  drivers/pbs/al_hal_nand.c
+  drivers/pbs/al_hal_nand_dma.c
+
 [Packages]
   MdePkg/MdePkg.dec
 
@@ -58,4 +70,4 @@
   # are found first (al_hal_plat_types.h, al_hal_plat_services.h), then
   # HAL public and private headers.
   GCC:*_*_*_CC_FLAGS = -include al_hal_plat_types.h -include al_hal_plat_services.h -Wno-unused-parameter -Wno-sign-compare -Wno-unused-variable -Wno-unused-function -Wno-unused-but-set-variable -Wno-maybe-uninitialized -Wno-parentheses
-  GCC:*_*_AARCH64_CC_FLAGS = -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/common -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/eth -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/udma -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/iofic -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/io_fabric -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/eth -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/udma -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/iofic -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/io_fabric
+  GCC:*_*_AARCH64_CC_FLAGS = -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/common -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/eth -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/udma -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/iofic -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/io_fabric -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/ssm -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/pbs -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/eth -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/udma -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/iofic -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/io_fabric -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/ssm -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/pbs

@@ -3,10 +3,10 @@
 
   Drives the AL NAND controller at 0xFA100000 on the Alpine V2 SoC.
   Supports Toshiba BENAND (built-in ECC) flash as a read-only block device.
-  Polling-based PIO, no interrupts, no DMA.
 
-  Block device exposes raw NAND pages (2048 bytes per block).
-  Bad blocks return EFI_DEVICE_ERROR on read.
+  Uses the official AL HAL for NAND access. Page reads are accelerated via
+  the SSM RAID DMA engine (memory-copy DMA) when available, falling back
+  to PIO otherwise.
 
   Copyright (c) 2024, MikroTik. All rights reserved.
 
@@ -15,8 +15,10 @@
 
 #include "AlNandDxe.h"
 
+STATIC EFI_CPU_ARCH_PROTOCOL  *mCpu;
+
 //
-// Device path template (GUID matches FILE_GUID from INF)
+// Device path template
 //
 STATIC AL_NAND_DEVICE_PATH  mAlNandDevicePathTemplate = {
   {
@@ -28,108 +30,194 @@ STATIC AL_NAND_DEVICE_PATH  mAlNandDevicePathTemplate = {
         (UINT8)((sizeof (AL_NAND_DEVICE_PATH) - sizeof (EFI_DEVICE_PATH_PROTOCOL)) >> 8),
       },
     },
-    // GUID matches FILE_GUID from INF
     { 0x8b3e4d5c, 0xf2a1, 0x4b07, { 0xa8, 0xea, 0x3f, 0xbc, 0x2e, 0x5d, 0x7f, 0x94 } }
   },
   {
     END_DEVICE_PATH_TYPE,
     END_ENTIRE_DEVICE_PATH_SUBTYPE,
-    {
-      sizeof (EFI_DEVICE_PATH_PROTOCOL),
-      0
-    }
+    { sizeof (EFI_DEVICE_PATH_PROTOCOL), 0 }
   }
 };
 
 // ---------------------------------------------------------------------------
-// Low-level register helpers
-// ---------------------------------------------------------------------------
-
-STATIC
-VOID
-AlNandWriteMasked32 (
-  IN UINTN   Addr,
-  IN UINT32  Mask,
-  IN UINT32  Value
-  )
-{
-  UINT32  Tmp;
-
-  Tmp = MmioRead32 (Addr);
-  Tmp = (Tmp & ~Mask) | (Value & Mask);
-  MmioWrite32 (Addr, Tmp);
-}
-
-// ---------------------------------------------------------------------------
-// Command buffer helpers
+// DMA initialization
 // ---------------------------------------------------------------------------
 
 /**
-  Write a single command to the command buffer FIFO.
+  Allocate DMA-safe memory: below 4GB, uncacheable.
+  Returns both virtual and physical addresses.
 **/
 STATIC
-VOID
-AlNandCmdExec (
-  IN AL_NAND_CONTEXT  *Ctx,
-  IN UINT32           Cmd
+EFI_STATUS
+AlNandAllocDmaBuffer (
+  IN  UINTN                 Size,
+  OUT VOID                  **VirtAddr,
+  OUT EFI_PHYSICAL_ADDRESS  *PhysAddr
   )
 {
-  MmioWrite32 (Ctx->CmdBuffBase, Cmd);
+  EFI_STATUS            Status;
+  EFI_PHYSICAL_ADDRESS  Pages;
+  UINTN                 NumPages;
+
+  NumPages = EFI_SIZE_TO_PAGES (Size);
+  Pages = 0xFFFFFFFF;
+
+  Status = gBS->AllocatePages (AllocateMaxAddress, EfiBootServicesData,
+                               NumPages, &Pages);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  *VirtAddr = (VOID *)(UINTN)Pages;
+  *PhysAddr = Pages;
+
+  //
+  // Zero while cacheable, flush, then set to UC for DMA coherency
+  //
+  ZeroMem (*VirtAddr, EFI_PAGES_TO_SIZE (NumPages));
+  WriteBackInvalidateDataCacheRange (*VirtAddr, EFI_PAGES_TO_SIZE (NumPages));
+
+  if (mCpu != NULL) {
+    mCpu->SetMemoryAttributes (mCpu, Pages,
+                               EFI_PAGES_TO_SIZE (NumPages),
+                               EFI_MEMORY_UC);
+  }
+
+  return EFI_SUCCESS;
 }
 
 /**
-  Send a 16-bit byte count as two command buffer entries (LSB first).
+  Initialize the SSM RAID DMA engine for use with NAND.
+
+  Sets up UDMA descriptor rings, initializes SSM DMA and RAID.
 **/
 STATIC
-VOID
-AlNandSendByteCount (
-  IN AL_NAND_CONTEXT  *Ctx,
-  IN UINT32           CmdType,
-  IN UINT16           Count
+EFI_STATUS
+AlNandDmaInit (
+  IN AL_NAND_CONTEXT  *Ctx
   )
 {
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (CmdType, Count & 0xFF));
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (CmdType, (Count >> 8) & 0xFF));
+  EFI_STATUS                  Status;
+  struct al_ssm_dma_params    SsmParams;
+  struct al_udma_q_params     TxQParams;
+  struct al_udma_q_params     RxQParams;
+  int                         Err;
+
+  //
+  // Allocate descriptor rings (UC, below 4GB)
+  //
+  Status = AlNandAllocDmaBuffer (AL_NAND_DMA_TOTAL_RING_SIZE,
+                                 &Ctx->DescRingBase, &Ctx->DescRingPhys);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "AlNandDxe: DMA ring alloc failed: %r\n", Status));
+    return Status;
+  }
+
+  //
+  // Allocate DMA page buffer (for bounce buffer reads)
+  //
+  Status = AlNandAllocDmaBuffer (EFI_PAGE_SIZE,
+                                 &Ctx->DmaBufBase, &Ctx->DmaBufPhys);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "AlNandDxe: DMA buf alloc failed: %r\n", Status));
+    return Status;
+  }
+
+  //
+  // Initialize SSM DMA
+  //
+  ZeroMem (&SsmParams, sizeof (SsmParams));
+  SsmParams.rev_id          = AL_SSM_REV_ID_REV1;
+  SsmParams.udma_regs_base  = (void *)(UINTN)AL_SSM_RAID_UDMA_BASE;
+  SsmParams.name            = "nand-raid";
+  SsmParams.num_of_queues   = 1;
+  SsmParams.unit_adapter    = NULL;
+
+  Err = al_ssm_dma_init (&Ctx->SsmDma, &SsmParams);
+  if (Err != 0) {
+    DEBUG ((DEBUG_WARN, "AlNandDxe: al_ssm_dma_init failed: %d\n", Err));
+    return EFI_DEVICE_ERROR;
+  }
+
+  //
+  // Initialize queue 0
+  //
+  ZeroMem (&TxQParams, sizeof (TxQParams));
+  TxQParams.size           = AL_NAND_DMA_DESCS_PER_Q;
+  TxQParams.desc_base      = (union al_udma_desc *)
+                             ((UINTN)Ctx->DescRingBase + 0 * AL_NAND_DMA_RING_SIZE);
+  TxQParams.desc_phy_base  = Ctx->DescRingPhys + 0 * AL_NAND_DMA_RING_SIZE;
+  TxQParams.cdesc_base     = (uint8_t *)
+                             ((UINTN)Ctx->DescRingBase + 1 * AL_NAND_DMA_RING_SIZE);
+  TxQParams.cdesc_phy_base = Ctx->DescRingPhys + 1 * AL_NAND_DMA_RING_SIZE;
+  TxQParams.cdesc_size     = AL_NAND_DMA_DESC_SIZE;
+
+  ZeroMem (&RxQParams, sizeof (RxQParams));
+  RxQParams.size           = AL_NAND_DMA_DESCS_PER_Q;
+  RxQParams.desc_base      = (union al_udma_desc *)
+                             ((UINTN)Ctx->DescRingBase + 2 * AL_NAND_DMA_RING_SIZE);
+  RxQParams.desc_phy_base  = Ctx->DescRingPhys + 2 * AL_NAND_DMA_RING_SIZE;
+  RxQParams.cdesc_base     = (uint8_t *)
+                             ((UINTN)Ctx->DescRingBase + 3 * AL_NAND_DMA_RING_SIZE);
+  RxQParams.cdesc_phy_base = Ctx->DescRingPhys + 3 * AL_NAND_DMA_RING_SIZE;
+  RxQParams.cdesc_size     = AL_NAND_DMA_DESC_SIZE;
+
+  Err = al_ssm_dma_q_init (&Ctx->SsmDma, 0, &TxQParams, &RxQParams, AL_RAID_Q);
+  if (Err != 0) {
+    DEBUG ((DEBUG_WARN, "AlNandDxe: al_ssm_dma_q_init failed: %d\n", Err));
+    return EFI_DEVICE_ERROR;
+  }
+
+  //
+  // Enable DMA
+  //
+  Err = al_ssm_dma_state_set (&Ctx->SsmDma, UDMA_NORMAL);
+  if (Err != 0) {
+    DEBUG ((DEBUG_WARN, "AlNandDxe: al_ssm_dma_state_set failed: %d\n", Err));
+    return EFI_DEVICE_ERROR;
+  }
+
+  //
+  // Initialize RAID engine (loads GF tables)
+  //
+  al_raid_init (&Ctx->SsmDma, (void *)(UINTN)AL_SSM_RAID_APP_BASE);
+
+  DEBUG ((DEBUG_INFO, "AlNandDxe: SSM RAID DMA initialized\n"));
+  return EFI_SUCCESS;
 }
 
-/**
-  Poll NFC_INT_STAT for a given bit mask, with timeout.
+// ---------------------------------------------------------------------------
+// NFC interrupt status helpers
+// ---------------------------------------------------------------------------
 
-  Uses a tight busy-loop for the first 1000 iterations (~50us at MMIO speed),
-  then falls back to 1us delays to avoid locking up on long operations.
+/**
+  Poll NFC interrupt status for a given bit mask, with timeout.
+  Uses a tight busy-loop for the first 1000 iterations, then falls
+  back to 1us delays.
 **/
 STATIC
 EFI_STATUS
 AlNandPollIntStatus (
-  IN AL_NAND_CONTEXT  *Ctx,
-  IN UINT32           Mask
+  IN struct al_nand_ctrl_obj  *Obj,
+  IN UINT32                   Mask
   )
 {
   UINTN   Iter;
   UINT32  Status;
 
-  //
-  // Phase 1: tight busy-poll (no delay) — covers typical tR latency
-  //
   for (Iter = 0; Iter < 1000; Iter++) {
-    Status = MmioRead32 (Ctx->CtrlBase + AL_NAND_NFC_INT_STAT);
+    Status = al_nand_int_status_get (Obj);
     if ((Status & Mask) != 0) {
-      MmioWrite32 (Ctx->CtrlBase + AL_NAND_NFC_INT_STAT, Status & Mask);
       return EFI_SUCCESS;
     }
   }
 
-  //
-  // Phase 2: delayed poll for slow operations (up to 1 second)
-  //
-  for (Iter = 0; Iter < AL_NAND_POLL_TIMEOUT_US; Iter += AL_NAND_POLL_INTERVAL_US) {
-    Status = MmioRead32 (Ctx->CtrlBase + AL_NAND_NFC_INT_STAT);
+  for (Iter = 0; Iter < AL_NAND_POLL_TIMEOUT_US; Iter++) {
+    Status = al_nand_int_status_get (Obj);
     if ((Status & Mask) != 0) {
-      MmioWrite32 (Ctx->CtrlBase + AL_NAND_NFC_INT_STAT, Status & Mask);
       return EFI_SUCCESS;
     }
-
-    MicroSecondDelay (AL_NAND_POLL_INTERVAL_US);
+    MicroSecondDelay (1);
   }
 
   DEBUG ((DEBUG_ERROR, "AlNandDxe: Int status poll timeout (mask=0x%x)\n", Mask));
@@ -137,143 +225,42 @@ AlNandPollIntStatus (
 }
 
 /**
-  Wait for command buffer to drain (CMD_BUF_EMPTY).
+  Wait for DMA transaction completions. Polls until the expected number
+  of completions have been acknowledged.
 **/
 STATIC
 EFI_STATUS
-AlNandWaitCmdEmpty (
-  IN AL_NAND_CONTEXT  *Ctx
+AlNandWaitDmaCompletion (
+  IN struct al_nand_ctrl_obj  *Obj,
+  IN INT32                    NumCompletions
   )
 {
-  return AlNandPollIntStatus (Ctx, AL_NAND_INT_CMD_BUF_EMPTY);
-}
+  UINTN     Iter;
+  uint32_t  CompStatus;
+  INT32     Done;
+  int       Ret;
 
-// ---------------------------------------------------------------------------
-// Codeword configuration
-// ---------------------------------------------------------------------------
-
-/**
-  Configure codeword size and count for data transfers.
-  Skips register writes if the configuration hasn't changed.
-**/
-STATIC
-VOID
-AlNandCwConfig (
-  IN AL_NAND_CONTEXT  *Ctx,
-  IN UINT32           CwSize,
-  IN UINT32           CwCount
-  )
-{
-  if ((CwSize == Ctx->LastCwSize) && (CwCount == Ctx->LastCwCount)) {
-    return;
+  Done = 0;
+  for (Iter = 0; Iter < AL_NAND_POLL_TIMEOUT_US && Done < NumCompletions; Iter++) {
+    Ret = al_nand_transaction_completion (Obj, &CompStatus);
+    if (Ret > 0) {
+      Done++;
+      if (CompStatus != 0) {
+        DEBUG ((DEBUG_WARN, "AlNandDxe: DMA completion status 0x%x\n", CompStatus));
+      }
+      continue;
+    }
+    if (Iter >= 1000) {
+      MicroSecondDelay (1);
+    }
   }
 
-  AlNandWriteMasked32 (
-    Ctx->CtrlBase + AL_NAND_CW_SIZE_CNT_REG,
-    AL_NAND_CW_SIZE_MASK | AL_NAND_CW_COUNT_MASK,
-    (CwSize << AL_NAND_CW_SIZE_SHIFT) | (CwCount << AL_NAND_CW_COUNT_SHIFT)
-    );
+  if (Done < NumCompletions) {
+    DEBUG ((DEBUG_ERROR, "AlNandDxe: DMA completion timeout (%d/%d)\n", Done, NumCompletions));
+    return EFI_TIMEOUT;
+  }
 
-  //
-  // Wrapper codeword size
-  //
-  MmioWrite32 (Ctx->WrapBase + AL_NAND_WRAP_CW_SIZE, CwSize);
-
-  Ctx->LastCwSize  = CwSize;
-  Ctx->LastCwCount = CwCount;
-}
-
-// ---------------------------------------------------------------------------
-// Hardware initialization
-// ---------------------------------------------------------------------------
-
-/**
-  Initialize the AL NAND controller.
-
-  Sets bank types, timing, mode, disables ECC (BENAND has internal ECC).
-**/
-STATIC
-VOID
-AlNandHwInit (
-  IN AL_NAND_CONTEXT  *Ctx
-  )
-{
-  UINT32  TimParams0;
-  UINT32  TimParams1;
-  UINT32  CtlReg0;
-  UINT32  Twb;
-
-  //
-  // Set all 6 banks to NAND type
-  //
-  MmioWrite32 (Ctx->CtrlBase + AL_NAND_FLASH_CTL_3, AL_NAND_FLASH_CTL_3_ALL_NAND);
-
-  //
-  // SDR mode, ONFI timing mode 0 (manual via RMN 2903)
-  //
-  AlNandWriteMasked32 (
-    Ctx->CtrlBase + AL_NAND_MODE_SELECT_REG,
-    0x7FFF,    // mode + all timing fields
-    AL_NAND_MODE_SELECT_SDR | (6 << AL_NAND_MODE_SDR_TIM_SHIFT)  // 6 = manual timing mode
-    );
-
-  //
-  // Configure ctl_reg0: CS0, 8-bit DQ, 2 col cycles, 2 row cycles, 2K page, RX mode
-  //
-  CtlReg0 = (0 << AL_NAND_CTL_REG0_CS_SHIFT) |                // CS0
-            (0 << AL_NAND_CTL_REG0_CS2_SHIFT) |                // CS2 = 0
-            (BENAND_COL_CYCLES << AL_NAND_CTL_REG0_COL_SHIFT) |
-            (BENAND_ROW_CYCLES << AL_NAND_CTL_REG0_ROW_SHIFT) |
-            (AL_NAND_PAGE_SIZE_2K << AL_NAND_CTL_REG0_PAGE_SHIFT);
-            // DQ_WIDTH bit clear = 8-bit, TX_MODE bit clear = RX
-  MmioWrite32 (Ctx->CtrlBase + AL_NAND_CTL_REG0, CtlReg0);
-
-  //
-  // SDR timing parameters for ONFI mode 0 at 500 MHz
-  //
-  TimParams0 = (AL_NAND_TIM_SETUP  << AL_NAND_SDR_T0_SETUP_SHIFT) |
-               (AL_NAND_TIM_HOLD   << AL_NAND_SDR_T0_HOLD_SHIFT) |
-               (AL_NAND_TIM_WH     << AL_NAND_SDR_T0_WH_SHIFT) |
-               (AL_NAND_TIM_WRP    << AL_NAND_SDR_T0_WRP_SHIFT) |
-               (AL_NAND_TIM_INTCMD << AL_NAND_SDR_T0_INTCMD_SHIFT);
-  MmioWrite32 (Ctx->CtrlBase + AL_NAND_SDR_TIM_PARAMS_0, TimParams0);
-
-  //
-  // tWB is 7 bits split: low 6 bits in [11:6], MSB in bit [14]
-  //
-  Twb = AL_NAND_TIM_WB;
-  TimParams1 = (AL_NAND_TIM_RR       << AL_NAND_SDR_T1_RR_SHIFT) |
-               ((Twb & 0x3F)         << AL_NAND_SDR_T1_WB_SHIFT) |
-               (AL_NAND_TIM_READ_DLY << AL_NAND_SDR_T1_READ_DLY_SHIFT) |
-               (((Twb >> 6) & 1)     << AL_NAND_SDR_T1_WB_MSB_SHIFT);
-  MmioWrite32 (Ctx->CtrlBase + AL_NAND_SDR_TIM_PARAMS_1, TimParams1);
-
-  //
-  // Ready/busy timeout: max value, enabled
-  //
-  MmioWrite32 (
-    Ctx->CtrlBase + AL_NAND_RDY_BUSY_WAIT_CNT,
-    (0xFFFF << AL_NAND_RDY_TOUT_SHIFT) | AL_NAND_RDYBSYEN
-    );
-
-  //
-  // Disable ECC (BENAND has internal ECC)
-  //
-  AlNandWriteMasked32 (
-    Ctx->CtrlBase + AL_NAND_BCH_CTRL_REG_0,
-    AL_NAND_BCH_ECC_ON_OFF,
-    0
-    );
-
-  //
-  // Disable all interrupts (we poll)
-  //
-  MmioWrite32 (Ctx->CtrlBase + AL_NAND_NFC_INT_EN, 0);
-
-  //
-  // Clear any pending interrupt status
-  //
-  MmioWrite32 (Ctx->CtrlBase + AL_NAND_NFC_INT_STAT, 0xFFFFFFFF);
+  return EFI_SUCCESS;
 }
 
 // ---------------------------------------------------------------------------
@@ -281,90 +268,139 @@ AlNandHwInit (
 // ---------------------------------------------------------------------------
 
 /**
-  Send NAND RESET command and wait for device ready.
+  Read a single NAND page via DMA.
 **/
 STATIC
 EFI_STATUS
-AlNandDeviceReset (
-  IN AL_NAND_CONTEXT  *Ctx
-  )
-{
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_CMD, NAND_CMD_RESET));
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_WAIT_READY, 0));
-
-  return AlNandWaitCmdEmpty (Ctx);
-}
-
-/**
-  Read NAND device ID bytes.
-**/
-STATIC
-EFI_STATUS
-AlNandReadId (
+AlNandReadPageDma (
   IN  AL_NAND_CONTEXT  *Ctx,
-  OUT UINT8            *IdBuf,
-  IN  UINT32           IdLen
+  IN  UINT32           Page,
+  OUT UINT8            *Buffer
   )
 {
-  EFI_STATUS  Status;
-  UINT32      CwSize;
-  UINT32      CwCount;
-  UINT32      i;
-  UINT32      Word;
+  uint32_t       CmdSeqBuf[AL_NAND_MAX_CMD_SEQ_ENTRIES];
+  int            NumEntries;
+  uint32_t       CwSize;
+  uint32_t       CwCount;
+  struct al_buf  DataBuf;
+  int            Err;
 
   //
-  // Align to 4 bytes for codeword
+  // Generate page read command sequence
   //
-  CwSize = (IdLen + 3) & ~3U;
-  CwCount = 1;
+  NumEntries = AL_NAND_MAX_CMD_SEQ_ENTRIES;
+  Err = al_nand_cmd_seq_gen_page_read (
+          &Ctx->NandObj,
+          0,              // column = 0
+          (int)Page,      // row = page number
+          (int)Ctx->PageSize,
+          0,              // ecc_enabled = 0 (BENAND)
+          CmdSeqBuf,
+          &NumEntries,
+          &CwSize,
+          &CwCount
+          );
+  if (Err != 0) {
+    DEBUG ((DEBUG_ERROR, "AlNandDxe: cmd_seq_gen_page_read failed: %d\n", Err));
+    return EFI_DEVICE_ERROR;
+  }
 
   //
-  // Configure codeword
+  // Configure codeword (PIO - just register writes, fast)
   //
-  AlNandCwConfig (Ctx, CwSize, CwCount);
+  al_nand_cw_config (&Ctx->NandObj, CwSize, CwCount);
 
   //
-  // Send READID command sequence
+  // Execute command sequence via PIO (small data, reliable)
   //
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_CMD, NAND_CMD_READID));
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_ADDRESS, 0x00));
+  al_nand_cmd_seq_execute (&Ctx->NandObj, CmdSeqBuf, NumEntries);
 
   //
-  // Request data read
+  // Wait for NFC to have data ready
   //
-  AlNandSendByteCount (Ctx, AL_NAND_CMD_TYPE_DATA_READ, (UINT16)CwSize);
-
-  //
-  // Wait for data ready
-  //
-  Status = AlNandPollIntStatus (Ctx, AL_NAND_INT_BUF_RDRDY);
+  EFI_STATUS Status = AlNandPollIntStatus (&Ctx->NandObj,
+                        AL_NAND_INTR_STATUS_BUF_RDRDY);
   if (EFI_ERROR (Status)) {
     return Status;
   }
 
   //
-  // Read data from buffer (FIFO reads, 4 bytes at a time)
+  // DMA read from NFC data buffer to our DMA bounce buffer
   //
-  for (i = 0; i < CwSize / 4; i++) {
-    Word = MmioRead32 (Ctx->DataBuffBase);
-    if (i * 4 < IdLen) {
-      UINT32  Remaining = IdLen - i * 4;
-      if (Remaining > 4) {
-        Remaining = 4;
-      }
-      CopyMem (IdBuf + i * 4, &Word, Remaining);
-    }
+  DataBuf.addr = (al_phys_addr_t)Ctx->DmaBufPhys;
+  DataBuf.len  = Ctx->PageSize;
+
+  Err = al_nand_data_buff_read_dma (&Ctx->NandObj, &DataBuf, 1);
+  if (Err != 0) {
+    DEBUG ((DEBUG_ERROR, "AlNandDxe: data_buff_read_dma failed: %d\n", Err));
+    return EFI_DEVICE_ERROR;
+  }
+
+  //
+  // Wait for DMA completion
+  //
+  Status = AlNandWaitDmaCompletion (&Ctx->NandObj, 1);
+  if (EFI_ERROR (Status)) {
+    return Status;
+  }
+
+  //
+  // Copy from DMA bounce buffer to caller's buffer
+  //
+  CopyMem (Buffer, Ctx->DmaBufBase, Ctx->PageSize);
+
+  return EFI_SUCCESS;
+}
+
+/**
+  Read a single NAND page via PIO (fallback path).
+**/
+STATIC
+EFI_STATUS
+AlNandReadPagePio (
+  IN  AL_NAND_CONTEXT  *Ctx,
+  IN  UINT32           Page,
+  OUT UINT8            *Buffer
+  )
+{
+  uint32_t    CmdSeqBuf[AL_NAND_MAX_CMD_SEQ_ENTRIES];
+  int         NumEntries;
+  uint32_t    CwSize;
+  uint32_t    CwCount;
+  int         Err;
+
+  NumEntries = AL_NAND_MAX_CMD_SEQ_ENTRIES;
+  Err = al_nand_cmd_seq_gen_page_read (
+          &Ctx->NandObj,
+          0, (int)Page, (int)Ctx->PageSize,
+          0, CmdSeqBuf, &NumEntries, &CwSize, &CwCount
+          );
+  if (Err != 0) {
+    return EFI_DEVICE_ERROR;
+  }
+
+  al_nand_cw_config (&Ctx->NandObj, CwSize, CwCount);
+  al_nand_cmd_seq_execute (&Ctx->NandObj, CmdSeqBuf, NumEntries);
+
+  //
+  // Read data via PIO (blocking HAL call)
+  //
+  Err = al_nand_data_buff_read (
+          &Ctx->NandObj,
+          (int)Ctx->PageSize,
+          0, 0,  // no skip
+          Buffer
+          );
+  if (Err != 0) {
+    DEBUG ((DEBUG_ERROR, "AlNandDxe: PIO page %u read failed: %d\n", Page, Err));
+    return EFI_DEVICE_ERROR;
   }
 
   return EFI_SUCCESS;
 }
 
 /**
-  Read a single NAND page (data area only, no OOB).
-
-  @param[in]  Ctx       Controller context
-  @param[in]  Page      Page number (0-based)
-  @param[out] Buffer    Output buffer, must be PageSize bytes
+  Read a single NAND page. Uses DMA if available, otherwise PIO.
 **/
 STATIC
 EFI_STATUS
@@ -374,65 +410,14 @@ AlNandReadPage (
   OUT UINT8            *Buffer
   )
 {
-  EFI_STATUS  Status;
-  UINT32      CwSize;
-  UINT32      CwCount;
-  UINT32      i;
-  UINT32      CwIdx;
-
-  CwSize  = AL_NAND_CW_SIZE;
-  CwCount = Ctx->PageSize / CwSize;
-
-  //
-  // Configure codewords
-  //
-  AlNandCwConfig (Ctx, CwSize, CwCount);
-
-  //
-  // Send page read command: CMD(0x00), COL0, COL1, ROW0, ROW1, CMD(0x30), WAIT_READY
-  //
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_CMD, NAND_CMD_READ0));
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_ADDRESS, 0));        // Column low
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_ADDRESS, 0));        // Column high
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_ADDRESS, Page & 0xFF));
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_ADDRESS, (Page >> 8) & 0xFF));
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_CMD, NAND_CMD_READ1));
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_WAIT_READY, 0));
-
-  //
-  // Queue all DATA_READ_COUNT commands
-  //
-  for (CwIdx = 0; CwIdx < CwCount; CwIdx++) {
-    AlNandSendByteCount (Ctx, AL_NAND_CMD_TYPE_DATA_READ, (UINT16)CwSize);
+  if (Ctx->DmaAvailable) {
+    return AlNandReadPageDma (Ctx, Page, Buffer);
   }
-
-  //
-  // Read each codeword as it becomes available
-  //
-  for (CwIdx = 0; CwIdx < CwCount; CwIdx++) {
-    Status = AlNandPollIntStatus (Ctx, AL_NAND_INT_BUF_RDRDY);
-    if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_ERROR, "AlNandDxe: Page %u codeword %u read timeout\n", Page, CwIdx));
-      return Status;
-    }
-
-    //
-    // Read codeword from data buffer FIFO
-    //
-    for (i = 0; i < CwSize / 4; i++) {
-      ((UINT32 *)Buffer)[CwIdx * (CwSize / 4) + i] = MmioRead32 (Ctx->DataBuffBase);
-    }
-  }
-
-  return EFI_SUCCESS;
+  return AlNandReadPagePio (Ctx, Page, Buffer);
 }
 
 /**
-  Read the first byte of OOB area for a given page (bad block marker).
-
-  @param[in]  Ctx       Controller context
-  @param[in]  Page      Page number
-  @param[out] OobByte   First OOB byte
+  Read the first byte of OOB area (bad block marker).
 **/
 STATIC
 EFI_STATUS
@@ -442,44 +427,41 @@ AlNandReadOobByte (
   OUT UINT8            *OobByte
   )
 {
-  EFI_STATUS  Status;
-  UINT32      Col;
-  UINT32      Word;
+  uint32_t    CmdSeqBuf[AL_NAND_MAX_CMD_SEQ_ENTRIES];
+  int         NumEntries;
+  uint32_t    CwSize;
+  uint32_t    CwCount;
+  UINT8       Tmp[4];
+  int         Err;
 
   //
-  // Column address = page data size (start of OOB)
+  // Read 4 bytes from column = PageSize (start of OOB)
   //
-  Col = Ctx->PageSize;
-
-  //
-  // Configure codeword: 4 bytes (minimum), 1 codeword
-  //
-  AlNandCwConfig (Ctx, 4, 1);
-
-  //
-  // Send page read with column pointing to OOB area
-  //
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_CMD, NAND_CMD_READ0));
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_ADDRESS, Col & 0xFF));
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_ADDRESS, (Col >> 8) & 0xFF));
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_ADDRESS, Page & 0xFF));
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_ADDRESS, (Page >> 8) & 0xFF));
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_CMD, NAND_CMD_READ1));
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_WAIT_READY, 0));
-
-  //
-  // Read 4 bytes
-  //
-  AlNandSendByteCount (Ctx, AL_NAND_CMD_TYPE_DATA_READ, 4);
-
-  Status = AlNandPollIntStatus (Ctx, AL_NAND_INT_BUF_RDRDY);
-  if (EFI_ERROR (Status)) {
-    return Status;
+  NumEntries = AL_NAND_MAX_CMD_SEQ_ENTRIES;
+  Err = al_nand_cmd_seq_gen_page_read (
+          &Ctx->NandObj,
+          (int)Ctx->PageSize,   // column = OOB start
+          (int)Page,
+          4,                    // read 4 bytes
+          0,                    // no ECC
+          CmdSeqBuf,
+          &NumEntries,
+          &CwSize,
+          &CwCount
+          );
+  if (Err != 0) {
+    return EFI_DEVICE_ERROR;
   }
 
-  Word = MmioRead32 (Ctx->DataBuffBase);
-  *OobByte = (UINT8)(Word & 0xFF);
+  al_nand_cw_config (&Ctx->NandObj, CwSize, CwCount);
+  al_nand_cmd_seq_execute (&Ctx->NandObj, CmdSeqBuf, NumEntries);
 
+  Err = al_nand_data_buff_read (&Ctx->NandObj, 4, 0, 0, Tmp);
+  if (Err != 0) {
+    return EFI_DEVICE_ERROR;
+  }
+
+  *OobByte = Tmp[0];
   return EFI_SUCCESS;
 }
 
@@ -506,9 +488,6 @@ AlNandScanBadBlocks (
 
     Status = AlNandReadOobByte (Ctx, Page, &OobByte);
     if (EFI_ERROR (Status) || (OobByte != 0xFF)) {
-      //
-      // Mark block as bad
-      //
       Ctx->BadBlockMap[Block / 8] |= (UINT8)(1 << (Block % 8));
       BadCount++;
       if (!EFI_ERROR (Status)) {
@@ -522,9 +501,6 @@ AlNandScanBadBlocks (
   DEBUG ((DEBUG_INFO, "AlNandDxe: Bad block scan complete, %u bad blocks found\n", BadCount));
 }
 
-/**
-  Check if a block is marked bad.
-**/
 STATIC
 BOOLEAN
 AlNandIsBlockBad (
@@ -535,7 +511,6 @@ AlNandIsBlockBad (
   if (Block >= Ctx->NumBlocks) {
     return TRUE;
   }
-
   return (Ctx->BadBlockMap[Block / 8] & (1 << (Block % 8))) != 0;
 }
 
@@ -543,12 +518,6 @@ AlNandIsBlockBad (
 // MIKROTIK_NAND_FLASH_PROTOCOL implementation
 // ---------------------------------------------------------------------------
 
-#define AL_NAND_FROM_NANDFLASH(a)  CR (a, AL_NAND_CONTEXT, NandFlash, AL_NAND_SIGNATURE)
-
-/**
-  Read a single NAND page (full page including tag area in last 16 bytes).
-  Returns all-0xFF for pages in bad blocks.
-**/
 STATIC
 EFI_STATUS
 EFIAPI
@@ -582,8 +551,7 @@ AlNandFlashReadPage (
 
 /**
   Read only the inline tags (last 16 bytes) of a NAND page.
-  Uses column-addressed read: 4 MMIO reads instead of 512 for a full page.
-  Returns all-0xFF for pages in bad blocks.
+  Uses column-addressed read for efficiency.
 **/
 STATIC
 EFI_STATUS
@@ -596,9 +564,11 @@ AlNandFlashReadTags (
 {
   AL_NAND_CONTEXT  *Ctx;
   UINT32           Block;
-  UINT32           Col;
-  EFI_STATUS       Status;
-  UINT32           i;
+  uint32_t         CmdSeqBuf[AL_NAND_MAX_CMD_SEQ_ENTRIES];
+  int              NumEntries;
+  uint32_t         CwSize;
+  uint32_t         CwCount;
+  int              Err;
 
   if ((This == NULL) || (Buffer == NULL)) {
     return EFI_INVALID_PARAMETER;
@@ -619,47 +589,36 @@ AlNandFlashReadTags (
   //
   // Column address = PageSize - 16 (start of inline tags)
   //
-  Col = Ctx->PageSize - 16;
-
-  //
-  // Configure codeword: 16 bytes, 1 codeword
-  //
-  AlNandCwConfig (Ctx, 16, 1);
-
-  //
-  // Send page read with column pointing to tag area
-  //
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_CMD, NAND_CMD_READ0));
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_ADDRESS, Col & 0xFF));
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_ADDRESS, (Col >> 8) & 0xFF));
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_ADDRESS, PageIndex & 0xFF));
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_ADDRESS, (PageIndex >> 8) & 0xFF));
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_CMD, NAND_CMD_READ1));
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_WAIT_READY, 0));
-
-  //
-  // Read 16 bytes
-  //
-  AlNandSendByteCount (Ctx, AL_NAND_CMD_TYPE_DATA_READ, 16);
-
-  Status = AlNandPollIntStatus (Ctx, AL_NAND_INT_BUF_RDRDY);
-  if (EFI_ERROR (Status)) {
-    return Status;
+  NumEntries = AL_NAND_MAX_CMD_SEQ_ENTRIES;
+  Err = al_nand_cmd_seq_gen_page_read (
+          &Ctx->NandObj,
+          (int)(Ctx->PageSize - 16),  // column
+          (int)PageIndex,              // row
+          16,                          // 16 bytes
+          0,                           // no ECC
+          CmdSeqBuf,
+          &NumEntries,
+          &CwSize,
+          &CwCount
+          );
+  if (Err != 0) {
+    return EFI_DEVICE_ERROR;
   }
 
-  for (i = 0; i < 4; i++) {
-    ((UINT32 *)Buffer)[i] = MmioRead32 (Ctx->DataBuffBase);
+  al_nand_cw_config (&Ctx->NandObj, CwSize, CwCount);
+  al_nand_cmd_seq_execute (&Ctx->NandObj, CmdSeqBuf, NumEntries);
+
+  Err = al_nand_data_buff_read (&Ctx->NandObj, 16, 0, 0, Buffer);
+  if (Err != 0) {
+    return EFI_DEVICE_ERROR;
   }
 
   return EFI_SUCCESS;
 }
 
 /**
-  Read full page data from the NAND's internal buffer using Change Read Column.
-  Must be called immediately after ReadTags on the same page — avoids a
-  second tR by reusing the page already loaded in the NAND's page register.
-
-  Issues: CMD(0x05), COL(0x0000), CMD(0xE0), then reads PageSize bytes.
+  Read full page data using Change Read Column.
+  Must be called immediately after ReadTags on the same page.
 **/
 STATIC
 EFI_STATUS
@@ -670,11 +629,11 @@ AlNandFlashReadPageBody (
   )
 {
   AL_NAND_CONTEXT  *Ctx;
-  EFI_STATUS       Status;
-  UINT32           CwSize;
-  UINT32           CwCount;
-  UINT32           CwIdx;
-  UINT32           i;
+  uint32_t         CmdSeqBuf[16];
+  int              Idx;
+  uint32_t         CwSize;
+  uint32_t         CwCount;
+  uint32_t         CwIdx;
 
   if ((This == NULL) || (Buffer == NULL)) {
     return EFI_INVALID_PARAMETER;
@@ -685,35 +644,59 @@ AlNandFlashReadPageBody (
   CwSize  = AL_NAND_CW_SIZE;
   CwCount = Ctx->PageSize / CwSize;
 
-  AlNandCwConfig (Ctx, CwSize, CwCount);
+  al_nand_cw_config (&Ctx->NandObj, CwSize, CwCount);
 
   //
-  // Change Read Column: reposition output to column 0 without re-reading
-  // from the NAND array. The page is already in the NAND's page register.
+  // Build Change Read Column command sequence:
+  // CMD(0x05), COL(0x00), COL(0x00), CMD(0xE0), then DATA_READ_COUNT * CwCount
   //
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_CMD, NAND_CMD_CHANGE_COL1));
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_ADDRESS, 0));    // Column low
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_ADDRESS, 0));    // Column high
-  AlNandCmdExec (Ctx, AL_NAND_CMD_ENTRY (AL_NAND_CMD_TYPE_CMD, NAND_CMD_CHANGE_COL2));
+  Idx = 0;
+  CmdSeqBuf[Idx++] = AL_NAND_CMD_SEQ_ENTRY (AL_NAND_COMMAND_TYPE_CMD, 0x05);
+  CmdSeqBuf[Idx++] = AL_NAND_CMD_SEQ_ENTRY (AL_NAND_COMMAND_TYPE_ADDRESS, 0);
+  CmdSeqBuf[Idx++] = AL_NAND_CMD_SEQ_ENTRY (AL_NAND_COMMAND_TYPE_ADDRESS, 0);
+  CmdSeqBuf[Idx++] = AL_NAND_CMD_SEQ_ENTRY (AL_NAND_COMMAND_TYPE_CMD, 0xE0);
 
-  //
-  // Queue all DATA_READ_COUNT commands
-  //
   for (CwIdx = 0; CwIdx < CwCount; CwIdx++) {
-    AlNandSendByteCount (Ctx, AL_NAND_CMD_TYPE_DATA_READ, (UINT16)CwSize);
+    CmdSeqBuf[Idx++] = AL_NAND_CMD_SEQ_ENTRY (
+                          AL_NAND_COMMAND_TYPE_DATA_READ_COUNT,
+                          CwSize & 0xFF);
+    CmdSeqBuf[Idx++] = AL_NAND_CMD_SEQ_ENTRY (
+                          AL_NAND_COMMAND_TYPE_DATA_READ_COUNT,
+                          (CwSize >> 8) & 0xFF);
   }
 
+  al_nand_cmd_seq_execute (&Ctx->NandObj, CmdSeqBuf, Idx);
+
   //
-  // Read each codeword
+  // Read data - use DMA if available, PIO otherwise
   //
-  for (CwIdx = 0; CwIdx < CwCount; CwIdx++) {
-    Status = AlNandPollIntStatus (Ctx, AL_NAND_INT_BUF_RDRDY);
+  if (Ctx->DmaAvailable) {
+    struct al_buf  DataBuf;
+    EFI_STATUS     Status;
+
+    Status = AlNandPollIntStatus (&Ctx->NandObj, AL_NAND_INTR_STATUS_BUF_RDRDY);
     if (EFI_ERROR (Status)) {
       return Status;
     }
 
-    for (i = 0; i < CwSize / 4; i++) {
-      ((UINT32 *)Buffer)[CwIdx * (CwSize / 4) + i] = MmioRead32 (Ctx->DataBuffBase);
+    DataBuf.addr = (al_phys_addr_t)Ctx->DmaBufPhys;
+    DataBuf.len  = Ctx->PageSize;
+
+    if (al_nand_data_buff_read_dma (&Ctx->NandObj, &DataBuf, 1) != 0) {
+      return EFI_DEVICE_ERROR;
+    }
+
+    Status = AlNandWaitDmaCompletion (&Ctx->NandObj, 1);
+    if (EFI_ERROR (Status)) {
+      return Status;
+    }
+
+    CopyMem (Buffer, Ctx->DmaBufBase, Ctx->PageSize);
+  } else {
+    int Err = al_nand_data_buff_read (&Ctx->NandObj, (int)Ctx->PageSize,
+                                       0, 0, Buffer);
+    if (Err != 0) {
+      return EFI_DEVICE_ERROR;
     }
   }
 
@@ -735,7 +718,16 @@ AlNandBlockIoReset (
   AL_NAND_CONTEXT  *Ctx;
 
   Ctx = AL_NAND_FROM_BLOCKIO (This);
-  return AlNandDeviceReset (Ctx);
+
+  //
+  // Send NAND RESET command via HAL
+  //
+  al_nand_cmd_single_execute (&Ctx->NandObj,
+    AL_NAND_CMD_SEQ_ENTRY (AL_NAND_COMMAND_TYPE_CMD, 0xFF));
+  al_nand_cmd_single_execute (&Ctx->NandObj,
+    AL_NAND_CMD_SEQ_ENTRY (AL_NAND_COMMAND_TYPE_WAIT_FOR_READY, 0));
+
+  return AlNandPollIntStatus (&Ctx->NandObj, AL_NAND_INTR_STATUS_CMD_BUF_EMPTY);
 }
 
 STATIC
@@ -784,15 +776,8 @@ AlNandBlockIoReadBlocks (
   Buf = (UINT8 *)Buffer;
 
   while (NumPages > 0) {
-    //
-    // Check if this page's block is bad
-    //
     Block = Page / Ctx->PagesPerBlock;
     if (AlNandIsBlockBad (Ctx, Block)) {
-      //
-      // Return all-FF for bad block pages (erased pattern) so
-      // sequential reads can proceed past bad blocks.
-      //
       SetMem (Buf, Ctx->PageSize, 0xFF);
     } else {
       Status = AlNandReadPage (Ctx, Page, Buf);
@@ -844,10 +829,22 @@ AlNandDxeInitialize (
   IN EFI_SYSTEM_TABLE  *SystemTable
   )
 {
-  EFI_STATUS           Status;
-  AL_NAND_CONTEXT      *Ctx;
-  AL_NAND_DEVICE_PATH  *DevicePath;
-  UINT8                IdBuf[5];
+  EFI_STATUS                      Status;
+  AL_NAND_CONTEXT                 *Ctx;
+  AL_NAND_DEVICE_PATH             *DevicePath;
+  UINT8                           IdBuf[5];
+  int                             Err;
+  struct al_nand_dev_properties   DevProps;
+  struct al_nand_ecc_config       EccCfg;
+
+  //
+  // Get CPU Arch protocol for setting memory attributes
+  //
+  Status = gBS->LocateProtocol (&gEfiCpuArchProtocolGuid, NULL, (VOID **)&mCpu);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "AlNandDxe: CPU Arch protocol not found, DMA may not work\n"));
+    mCpu = NULL;
+  }
 
   //
   // Allocate context
@@ -857,32 +854,97 @@ AlNandDxeInitialize (
     return EFI_OUT_OF_RESOURCES;
   }
 
-  Ctx->Signature    = AL_NAND_SIGNATURE;
-  Ctx->Handle       = NULL;
-  Ctx->NandBase     = AL_NAND_BASE;
-  Ctx->CtrlBase     = AL_NAND_BASE + AL_NAND_CTRL_BASE_OFFSET;
-  Ctx->WrapBase     = AL_NAND_BASE + AL_NAND_WRAP_BASE_OFFSET;
-  Ctx->CmdBuffBase  = AL_NAND_BASE + AL_NAND_CMD_BUFF_OFFSET;
-  Ctx->DataBuffBase = AL_NAND_BASE + AL_NAND_DATA_BUFF_OFFSET;
-
-  //
-  // Set Toshiba BENAND parameters
-  //
+  Ctx->Signature     = AL_NAND_SIGNATURE;
+  Ctx->Handle        = NULL;
   Ctx->PageSize      = BENAND_PAGE_SIZE;
   Ctx->OobSize       = BENAND_OOB_SIZE;
   Ctx->PagesPerBlock = BENAND_PAGES_PER_BLOCK;
   Ctx->NumBlocks     = BENAND_NUM_BLOCKS;
   Ctx->NumPages      = BENAND_NUM_PAGES;
+  Ctx->DmaAvailable  = FALSE;
 
   //
-  // Initialize controller hardware
+  // Try to initialize DMA
   //
-  AlNandHwInit (Ctx);
+  Status = AlNandDmaInit (Ctx);
+  if (!EFI_ERROR (Status)) {
+    Ctx->DmaAvailable = TRUE;
+    DEBUG ((DEBUG_INFO, "AlNandDxe: DMA acceleration enabled\n"));
+  } else {
+    DEBUG ((DEBUG_WARN, "AlNandDxe: DMA init failed, using PIO fallback\n"));
+  }
+
+  //
+  // Initialize HAL NAND controller
+  //
+  Err = al_nand_init (
+          &Ctx->NandObj,
+          (void *)(UINTN)AL_NAND_BASE,
+          Ctx->DmaAvailable ? &Ctx->SsmDma : NULL,
+          0  // queue ID
+          );
+  if (Err != 0) {
+    DEBUG ((DEBUG_ERROR, "AlNandDxe: al_nand_init failed: %d\n", Err));
+    FreePool (Ctx);
+    return EFI_DEVICE_ERROR;
+  }
+
+  //
+  // Select device 0
+  //
+  al_nand_dev_select (&Ctx->NandObj, 0);
+
+  //
+  // Configure device properties for Toshiba BENAND
+  //
+  ZeroMem (&DevProps, sizeof (DevProps));
+  DevProps.timingMode        = AL_NAND_DEVICE_TIMING_MODE_MANUAL;
+  DevProps.sdrDataWidth      = AL_NAND_DEVICE_SDR_DATA_WIDTH_8;
+  DevProps.timing.tSETUP     = AL_NAND_TIM_SETUP;
+  DevProps.timing.tHOLD      = AL_NAND_TIM_HOLD;
+  DevProps.timing.tWH        = AL_NAND_TIM_WH;
+  DevProps.timing.tWRP       = AL_NAND_TIM_WRP;
+  DevProps.timing.tINTCMD    = AL_NAND_TIM_INTCMD;
+  DevProps.timing.tRR        = AL_NAND_TIM_RR;
+  DevProps.timing.tWB        = AL_NAND_TIM_WB;
+  DevProps.timing.readDelay  = AL_NAND_TIM_READ_DLY;
+  DevProps.readyBusyTimeout  = 0xFFFF;
+  DevProps.num_col_cyc       = BENAND_COL_CYCLES;
+  DevProps.num_row_cyc       = BENAND_ROW_CYCLES;
+  DevProps.pageSize          = AL_NAND_DEVICE_PAGE_SIZE_2K;
+
+  ZeroMem (&EccCfg, sizeof (EccCfg));
+  EccCfg.algorithm       = AL_NAND_ECC_ALGORITHM_BCH;
+  EccCfg.num_corr_bits   = AL_NAND_ECC_BCH_NUM_CORR_BITS_8;
+  EccCfg.messageSize     = AL_NAND_ECC_BCH_MESSAGE_SIZE_512;
+  EccCfg.spareAreaOffset = 0;
+
+  Err = al_nand_dev_config (&Ctx->NandObj, &DevProps, &EccCfg);
+  if (Err != 0) {
+    DEBUG ((DEBUG_ERROR, "AlNandDxe: al_nand_dev_config failed: %d\n", Err));
+    FreePool (Ctx);
+    return EFI_DEVICE_ERROR;
+  }
+
+  //
+  // Disable ECC (BENAND has built-in ECC)
+  //
+  al_nand_ecc_set_enabled (&Ctx->NandObj, 0);
+
+  //
+  // Disable all NFC interrupts (we poll status)
+  //
+  al_nand_int_disable (&Ctx->NandObj, 0xFFFFFFFF);
 
   //
   // Reset NAND device
   //
-  Status = AlNandDeviceReset (Ctx);
+  al_nand_cmd_single_execute (&Ctx->NandObj,
+    AL_NAND_CMD_SEQ_ENTRY (AL_NAND_COMMAND_TYPE_CMD, 0xFF));
+  al_nand_cmd_single_execute (&Ctx->NandObj,
+    AL_NAND_CMD_SEQ_ENTRY (AL_NAND_COMMAND_TYPE_WAIT_FOR_READY, 0));
+
+  Status = AlNandPollIntStatus (&Ctx->NandObj, AL_NAND_INTR_STATUS_CMD_BUF_EMPTY);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "AlNandDxe: Device reset failed: %r\n", Status));
     FreePool (Ctx);
@@ -890,29 +952,40 @@ AlNandDxeInitialize (
   }
 
   //
-  // Read device ID
+  // Read device ID (8 bytes, use all for diagnostics)
   //
-  Status = AlNandReadId (Ctx, IdBuf, 5);
-  if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_ERROR, "AlNandDxe: ReadID failed: %r\n", Status));
-    FreePool (Ctx);
-    return Status;
+  {
+    UINT8    RawId[8];
+    uint32_t CmdSeq[4];
+    CmdSeq[0] = AL_NAND_CMD_SEQ_ENTRY (AL_NAND_COMMAND_TYPE_CMD, 0x90);
+    CmdSeq[1] = AL_NAND_CMD_SEQ_ENTRY (AL_NAND_COMMAND_TYPE_ADDRESS, 0x00);
+    CmdSeq[2] = AL_NAND_CMD_SEQ_ENTRY (AL_NAND_COMMAND_TYPE_DATA_READ_COUNT, 8);
+    CmdSeq[3] = AL_NAND_CMD_SEQ_ENTRY (AL_NAND_COMMAND_TYPE_DATA_READ_COUNT, 0);
+
+    al_nand_cw_config (&Ctx->NandObj, 8, 1);
+    al_nand_cmd_seq_execute (&Ctx->NandObj, CmdSeq, 4);
+
+    Err = al_nand_data_buff_read (&Ctx->NandObj, 8, 0, 0, RawId);
+    if (Err != 0) {
+      DEBUG ((DEBUG_ERROR, "AlNandDxe: ReadID failed\n"));
+      FreePool (Ctx);
+      return EFI_DEVICE_ERROR;
+    }
+
+    CopyMem (IdBuf, RawId, 5);
+
+    DEBUG ((DEBUG_WARN, "AlNandDxe: NAND ID: %02x %02x %02x %02x %02x %02x %02x %02x\n",
+      RawId[0], RawId[1], RawId[2], RawId[3], RawId[4], RawId[5], RawId[6], RawId[7]));
   }
 
-  DEBUG ((DEBUG_INFO, "AlNandDxe: NAND ID: %02x %02x %02x %02x %02x\n",
-    IdBuf[0], IdBuf[1], IdBuf[2], IdBuf[3], IdBuf[4]));
-
-  //
-  // Verify manufacturer (Toshiba = 0x98) and BENAND flag
-  //
   if (IdBuf[0] != 0x98) {
-    DEBUG ((DEBUG_WARN, "AlNandDxe: Non-Toshiba NAND (mfr=0x%02x), proceeding anyway\n", IdBuf[0]));
+    DEBUG ((DEBUG_WARN, "AlNandDxe: Non-Toshiba NAND (mfr=0x%02x)\n", IdBuf[0]));
   }
 
-  if ((IdBuf[3] & TOSHIBA_NAND_ID4_IS_BENAND) != 0) {
-    DEBUG ((DEBUG_INFO, "AlNandDxe: Toshiba BENAND detected\n"));
+  if ((IdBuf[4] & TOSHIBA_NAND_ID4_IS_BENAND) != 0) {
+    DEBUG ((DEBUG_WARN, "AlNandDxe: Toshiba BENAND detected (ID5=0x%02x)\n", IdBuf[4]));
   } else {
-    DEBUG ((DEBUG_WARN, "AlNandDxe: BENAND flag not set in ID byte 4, proceeding\n"));
+    DEBUG ((DEBUG_WARN, "AlNandDxe: BENAND flag not set (ID5=0x%02x)\n", IdBuf[4]));
   }
 
   //
@@ -980,8 +1053,9 @@ AlNandDxeInitialize (
     return Status;
   }
 
-  DEBUG ((DEBUG_INFO, "AlNandDxe: NAND at 0x%lx, %u pages, %u bytes/page, block device ready\n",
-    (UINT64)Ctx->NandBase, Ctx->NumPages, Ctx->PageSize));
+  DEBUG ((DEBUG_INFO, "AlNandDxe: NAND at 0x%lx, %u pages, %u bytes/page, %a mode\n",
+    (UINT64)AL_NAND_BASE, Ctx->NumPages, Ctx->PageSize,
+    Ctx->DmaAvailable ? "DMA" : "PIO"));
 
   return EFI_SUCCESS;
 }

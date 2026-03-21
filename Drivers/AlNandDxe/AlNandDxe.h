@@ -2,7 +2,7 @@
   Annapurna Labs NAND controller DXE driver header for MikroTik CCR2004.
 
   Supports Toshiba BENAND (built-in ECC) flash. Read-only block device.
-  Uses AL HAL with SSM RAID DMA for accelerated page reads.
+  Uses AL HAL for NAND controller access.
 
   Copyright (c) 2024, MikroTik. All rights reserved.
 
@@ -14,12 +14,10 @@
 
 #include <Uefi.h>
 #include <Protocol/BlockIo.h>
-#include <Protocol/Cpu.h>
 #include <Protocol/DevicePath.h>
 #include <Protocol/MikroTikNandFlash.h>
 #include <Library/BaseLib.h>
 #include <Library/BaseMemoryLib.h>
-#include <Library/CacheMaintenanceLib.h>
 #include <Library/DebugLib.h>
 #include <Library/IoLib.h>
 #include <Library/MemoryAllocationLib.h>
@@ -28,22 +26,11 @@
 #include <Library/UefiLib.h>
 
 #include "al_hal_nand.h"
-#include "al_hal_ssm.h"
-#include "al_hal_ssm_raid.h"
 
 //
-// Alpine V2 SoC memory map addresses
+// Alpine V2 SoC memory map
 //
 #define AL_NAND_BASE                  0xFA100000
-
-// SSM RAID DMA engine (for NAND DMA acceleration)
-// AL_SB_BASE=0xFC000000, AL_SSM_DEV_NUM(1)=5, RAID unit = SB_BASE + 5*0x100000
-#define AL_SSM_RAID_UDMA_BASE         0xFC520000  // AL_SSM_UDMA_BASE(1,0)
-#define AL_SSM_RAID_APP_BASE          0xFC505000  // AL_SSM_BASE(1) + 0x5000
-
-// SSM RAID adapter base (AL_SSM_BASE(1) = SB_BASE + 5*0x100000)
-// PCI config space is at the start of this region
-#define AL_SSM_RAID_ADAPTER_BASE      0xFC500000
 
 //
 // Toshiba BENAND 1Gbit (128MB) parameters
@@ -57,9 +44,9 @@
 #define BENAND_ROW_CYCLES             2
 
 //
-// Toshiba BENAND: ID byte 4 bit 7 indicates BENAND
+// Toshiba BENAND: ID byte 5 bit 7 indicates BENAND
 //
-#define TOSHIBA_NAND_ID4_IS_BENAND    BIT7
+#define TOSHIBA_NAND_ID5_IS_BENAND    BIT7
 
 //
 // ONFI Mode 4 timing at 500 MHz sbclk (in controller cycles)
@@ -77,14 +64,6 @@
 // Polling
 //
 #define AL_NAND_POLL_TIMEOUT_US       1000000
-
-//
-// DMA descriptor ring configuration
-//
-#define AL_NAND_DMA_DESCS_PER_Q       32
-#define AL_NAND_DMA_DESC_SIZE         16   // sizeof(union al_udma_desc)
-#define AL_NAND_DMA_RING_SIZE         (AL_NAND_DMA_DESCS_PER_Q * AL_NAND_DMA_DESC_SIZE)
-#define AL_NAND_DMA_TOTAL_RING_SIZE   (4 * AL_NAND_DMA_RING_SIZE)  // tx_sub, tx_comp, rx_sub, rx_comp
 
 //
 // Maximum command sequence entries for a page read
@@ -114,22 +93,6 @@ typedef struct {
   // HAL NAND controller object
   //
   struct al_nand_ctrl_obj   NandObj;
-
-  //
-  // SSM RAID DMA engine
-  //
-  struct al_ssm_dma         SsmDma;
-  BOOLEAN                   DmaAvailable;
-
-  //
-  // DMA memory (UC, below 4GB)
-  //
-  VOID                      *DescRingBase;      // Descriptor rings virtual
-  EFI_PHYSICAL_ADDRESS      DescRingPhys;       // Descriptor rings physical
-  VOID                      *DmaBufBase;        // DMA page buffer virtual
-  EFI_PHYSICAL_ADDRESS      DmaBufPhys;         // DMA page buffer physical
-  VOID                      *CmdSeqBase;        // DMA cmd sequence buffer virtual
-  EFI_PHYSICAL_ADDRESS      CmdSeqPhys;         // DMA cmd sequence buffer physical
 
   //
   // Device parameters

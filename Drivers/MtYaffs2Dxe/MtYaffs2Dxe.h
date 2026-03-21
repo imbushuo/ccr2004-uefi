@@ -47,6 +47,14 @@
 #define YAFFS2_TYPE_SPECIAL    5
 
 //
+// Special object IDs (from yaffs_guts.h)
+//
+#define YAFFS2_OBJECTID_ROOT       1
+#define YAFFS2_OBJECTID_LOSTNFOUND 2
+#define YAFFS2_OBJECTID_UNLINKED   3
+#define YAFFS2_OBJECTID_DELETED    4
+
+//
 // Signatures
 //
 #define YAFFS2_VOLUME_SIGNATURE  SIGNATURE_32 ('Y', 'F', 'V', 'L')

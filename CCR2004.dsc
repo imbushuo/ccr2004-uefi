@@ -465,6 +465,11 @@
   Platform/MikroTik/CCR2004/Application/RouterBootApp/RouterBootApp.inf
 
   #
+  # RouterOS Kernel Loader (manual launch from UEFI shell)
+  #
+  Platform/MikroTik/CCR2004/Application/RouterOSLoader/RouterOSLoader.inf
+
+  #
   # Ethernet (Annapurna Labs — HAL-based driver)
   #
   Platform/MikroTik/CCR2004/Drivers/AlEthNextDxe/AlEthNextDxe.inf

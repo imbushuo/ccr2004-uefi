@@ -165,6 +165,9 @@ WRITE_STATUS       = TRUE
   # RouterBOOT trampoline
   INF Platform/MikroTik/CCR2004/Application/RouterBootApp/RouterBootApp.inf
 
+  # RouterOS Kernel Loader
+  INF Platform/MikroTik/CCR2004/Application/RouterOSLoader/RouterOSLoader.inf
+
   # UEFI Shell + dynamic commands
   INF ShellPkg/Application/Shell/Shell.inf
   INF ShellPkg/DynamicCommand/TftpDynamicCommand/TftpDynamicCommand.inf

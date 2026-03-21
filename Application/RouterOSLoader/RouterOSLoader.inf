@@ -1,0 +1,60 @@
+## @file
+#  RouterOS Kernel Loader — extracts and boots the RouterOS kernel from
+#  the NPK system image found on the YAFFS2 NAND filesystem.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION    = 0x0001001b
+  BASE_NAME      = RouterOSLoader
+  FILE_GUID      = 3a8f7c2e-d159-4b6a-91e0-7f4c5b2a8d63
+  MODULE_TYPE    = UEFI_APPLICATION
+  VERSION_STRING = 1.0
+  ENTRY_POINT    = RouterOSLoaderEntry
+
+[Sources]
+  RouterOSLoader.c
+  RouterOSLoader.h
+  NpkParser.c
+  KernelExtract.c
+  KernelBoot.c
+  XzDec/xz_config.h
+  XzDec/xz.h
+  XzDec/xz_private.h
+  XzDec/xz_stream.h
+  XzDec/xz_lzma2.h
+  XzDec/xz_crc32.c
+  XzDec/xz_dec_stream.c
+  XzDec/xz_dec_lzma2.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  DevicePathLib
+  MemoryAllocationLib
+  PrintLib
+  UefiApplicationEntryPoint
+  UefiBootServicesTableLib
+  UefiLib
+
+[Protocols]
+  gEfiDevicePathProtocolGuid            ## SOMETIMES_PRODUCES
+  gEfiLoadedImageProtocolGuid           ## CONSUMES
+  gEfiLoadFile2ProtocolGuid             ## SOMETIMES_PRODUCES
+  gEfiSimpleFileSystemProtocolGuid      ## CONSUMES
+
+[Guids]
+  gEfiFileInfoGuid                      ## CONSUMES
+  gLinuxEfiInitrdMediaGuid              ## SOMETIMES_PRODUCES
+
+[BuildOptions]
+  # xz-embedded uses kernel-style C that triggers some warnings
+  GCC:*_*_*_CC_FLAGS = -Wno-pointer-sign

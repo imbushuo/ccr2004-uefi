@@ -11,6 +11,7 @@
 
 #include <Guid/EventGroup.h>
 #include <Protocol/FirmwareVolume2.h>
+#include <Protocol/MikroTikNandFlash.h>
 #include <Protocol/SimpleTextIn.h>
 #include <Protocol/SimpleTextOut.h>
 #include <Library/BaseMemoryLib.h>
@@ -30,12 +31,34 @@ STATIC EFI_GUID mUefiShellFileGuid = {
 };
 
 //
-// RouterBootApp FILE_GUID from Application/RouterBootApp/RouterBootApp.inf
+// RouterOSLoader FILE_GUID from Application/RouterOSLoader/RouterOSLoader.inf
 //
-STATIC EFI_GUID mRouterBootAppFileGuid = {
-  0x4a3b8c2d, 0x91e7, 0x4f56,
-  { 0xb0, 0xd3, 0x7e, 0x6f, 0x5a, 0x1c, 0x9d, 0x28 }
+STATIC EFI_GUID mRouterOSLoaderFileGuid = {
+  0x3a8f7c2e, 0xd159, 0x4b6a,
+  { 0x91, 0xe0, 0x7f, 0x4c, 0x5b, 0x2a, 0x8d, 0x63 }
 };
+
+/**
+  Boot description handler: name NAND filesystem "Built-in NAND".
+**/
+STATIC
+CHAR16 *
+EFIAPI
+PlatformNandBootDescription (
+  IN EFI_HANDLE  Handle,
+  IN CHAR16      *DefaultDescription
+  )
+{
+  EFI_STATUS  Status;
+  VOID        *Dummy;
+
+  Status = gBS->HandleProtocol (Handle, &gMikroTikNandFlashProtocolGuid, &Dummy);
+  if (!EFI_ERROR (Status)) {
+    return AllocateCopyPool (sizeof (L"Built-in NAND"), L"Built-in NAND");
+  }
+
+  return NULL;
+}
 
 /**
   Find all SimpleTextOut/SimpleTextIn handles and register them
@@ -284,6 +307,11 @@ PlatformBootManagerAfterConsole (
   }
 
   //
+  // Register boot description handler so NAND shows as "Built-in NAND".
+  //
+  EfiBootManagerRegisterBootDescriptionHandler (PlatformNandBootDescription);
+
+  //
   // Register UEFI Shell as a boot option.
   //
   PlatformRegisterFvBootOption (
@@ -293,12 +321,12 @@ PlatformBootManagerAfterConsole (
     );
 
   //
-  // Register Factory RouterBOOT as a boot option (CATEGORY_APP only,
+  // Register RouterOS NPK Loader as a boot option (CATEGORY_APP only,
   // not ACTIVE — appears in Boot Manager menu but is never auto-booted).
   //
   PlatformRegisterFvBootOption (
-    &mRouterBootAppFileGuid,
-    L"Factory RouterBOOT",
+    &mRouterOSLoaderFileGuid,
+    L"RouterOS NPK Loader",
     LOAD_OPTION_CATEGORY_APP
     );
 
@@ -342,6 +370,28 @@ PlatformBootManagerUnableToBoot (
   // automatic PXE/network boot attempts during normal startup.
   //
   EfiBootManagerRefreshAllBootOption ();
+
+  //
+  // Remove "UEFI Non-Block Boot Device" entries — FV-based images
+  // auto-discovered by BDS that clutter the boot menu.
+  // The NAND filesystem gets a proper name from our boot description handler.
+  //
+  {
+    EFI_BOOT_MANAGER_LOAD_OPTION  *BootOptions;
+    UINTN                         Count;
+    UINTN                         i;
+
+    BootOptions = EfiBootManagerGetLoadOptions (&Count, LoadOptionTypeBoot);
+    for (i = 0; i < Count; i++) {
+      if ((BootOptions[i].Description != NULL) &&
+          (StrnCmp (BootOptions[i].Description, L"UEFI Non-Block Boot Device", 26) == 0))
+      {
+        EfiBootManagerDeleteLoadOptionVariable (
+          BootOptions[i].OptionNumber, LoadOptionTypeBoot);
+      }
+    }
+    EfiBootManagerFreeLoadOptions (BootOptions, Count);
+  }
 
   DEBUG ((DEBUG_INFO, "[CCR2004] Launching UiApp (Boot Manager Menu)...\n"));
   EfiBootManagerBoot (&BootManagerMenu);

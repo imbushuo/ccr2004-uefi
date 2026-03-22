@@ -162,9 +162,6 @@ WRITE_STATUS       = TRUE
   INF Platform/MikroTik/CCR2004/Application/DumpBlockApp/DumpBlockApp.inf
   INF Platform/MikroTik/CCR2004/Application/TftpPutApp/TftpPutApp.inf
 
-  # RouterBOOT trampoline
-  INF Platform/MikroTik/CCR2004/Application/RouterBootApp/RouterBootApp.inf
-
   # RouterOS Kernel Loader
   INF Platform/MikroTik/CCR2004/Application/RouterOSLoader/RouterOSLoader.inf
 

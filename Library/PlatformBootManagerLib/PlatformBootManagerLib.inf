@@ -24,6 +24,7 @@
 [Packages]
   MdePkg/MdePkg.dec
   MdeModulePkg/MdeModulePkg.dec
+  Platform/MikroTik/CCR2004/CCR2004.dec
 
 [LibraryClasses]
   BaseLib
@@ -42,3 +43,4 @@
   gEfiFirmwareVolume2ProtocolGuid
   gEfiSimpleTextInProtocolGuid
   gEfiSimpleTextOutProtocolGuid
+  gMikroTikNandFlashProtocolGuid

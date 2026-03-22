@@ -460,12 +460,7 @@
   Platform/MikroTik/CCR2004/Application/TftpPutApp/TftpPutApp.inf
 
   #
-  # RouterBOOT trampoline (chain-loads factory RouterBOOT from SPI flash)
-  #
-  Platform/MikroTik/CCR2004/Application/RouterBootApp/RouterBootApp.inf
-
-  #
-  # RouterOS Kernel Loader (manual launch from UEFI shell)
+  # RouterOS Kernel Loader (boot option, not auto-booted)
   #
   Platform/MikroTik/CCR2004/Application/RouterOSLoader/RouterOSLoader.inf
 

@@ -46,7 +46,7 @@ CHAR16 *
 EFIAPI
 PlatformNandBootDescription (
   IN EFI_HANDLE  Handle,
-  IN CHAR16      *DefaultDescription
+  IN CONST CHAR16  *DefaultDescription
   )
 {
   EFI_STATUS  Status;

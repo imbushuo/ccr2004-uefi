@@ -71,6 +71,7 @@ extern CONST UINT8 gXzMagic[XZ_MAGIC_SIZE];
 #define ELF_DATA_LSB    1
 #define ELF_MACHINE_AARCH64  183
 #define ELF_PT_LOAD     1
+#define ELF_SHN_UNDEF   0
 
 #pragma pack(1)
 typedef struct {
@@ -100,6 +101,19 @@ typedef struct {
   UINT64  p_memsz;
   UINT64  p_align;
 } ELF64_PHDR;
+
+typedef struct {
+  UINT32  sh_name;
+  UINT32  sh_type;
+  UINT64  sh_flags;
+  UINT64  sh_addr;
+  UINT64  sh_offset;
+  UINT64  sh_size;
+  UINT32  sh_link;
+  UINT32  sh_info;
+  UINT64  sh_addralign;
+  UINT64  sh_entsize;
+} ELF64_SHDR;
 #pragma pack()
 
 //

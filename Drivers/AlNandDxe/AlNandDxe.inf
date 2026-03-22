@@ -1,8 +1,8 @@
 ## @file
 #  Annapurna Labs NAND controller DXE driver for MikroTik CCR2004.
 #
-#  Drives the AL NAND controller on the Alpine V2 SoC with Toshiba BENAND
-#  flash. Produces EFI_BLOCK_IO_PROTOCOL (read-only) exposing raw NAND pages.
+#  Uses AL HAL for NAND controller access (PIO). Drives the Alpine V2 SoC
+#  with Toshiba BENAND flash. Produces EFI_BLOCK_IO_PROTOCOL (read-only).
 #
 #  Copyright (c) 2024, MikroTik. All rights reserved.
 #
@@ -27,6 +27,7 @@
   Platform/MikroTik/CCR2004/CCR2004.dec
 
 [LibraryClasses]
+  AlpineHalLib
   BaseLib
   BaseMemoryLib
   DebugLib
@@ -44,3 +45,6 @@
 
 [Depex]
   TRUE
+
+[BuildOptions]
+  GCC:*_*_AARCH64_CC_FLAGS = -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/common -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/udma -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/iofic -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/io_fabric -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/pbs -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/ssm -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/pbs -include al_hal_plat_types.h -include al_hal_plat_services.h

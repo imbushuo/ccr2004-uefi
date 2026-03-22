@@ -1072,6 +1072,7 @@ enum xz_ret xz_dec_lzma2_run(struct xz_dec_lzma2 *s, struct xz_buf *b)
 			if (!lzma_props(s, b->in[b->in_pos++]))
 				return XZ_DATA_ERROR;
 
+			s->lzma2.compressed--;
 			s->lzma2.sequence = SEQ_LZMA_PREPARE;
 
 			fallthrough;

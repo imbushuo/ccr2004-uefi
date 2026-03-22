@@ -1,11 +1,11 @@
 /** @file
-  Kernel extraction — ELF64 parsing, XZ stream finding, decompression,
+  Kernel extraction — ELF64 section-based parsing, XZ decompression,
   CPIO initrd detection.
 
-  The boot/kernel from the NPK is a self-decompressing ELF64 wrapper:
-    - Single PT_LOAD segment: small decompressor stub
-    - After PT_LOAD: XZ-compressed EFI stub kernel (decompresses to MZ image)
-    - Deeper in the file: XZ-compressed CPIO initrd
+  The boot/kernel from the NPK is an ELF64 with a section named "initrd"
+  containing XZ-compressed data.  Decompressing that section yields an
+  EFI stub kernel (MZ/PE image) with a CPIO initrd archive appended at
+  the end.
 
   MikroTik's XZ streams have valid LZMA2 data but truncated/corrupt
   container metadata (missing or bad footer/CRC). We use XZ_PREALLOC mode
@@ -28,20 +28,32 @@ CONST UINT8 gXzMagic[XZ_MAGIC_SIZE] = { 0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00 };
 #define XZ_DICT_MAX  (4U * 1024U * 1024U)
 
 /**
-  Validate ELF64 AArch64 and return the file offset just past PT_LOAD.
+  Validate ELF64 AArch64 and locate the section named "initrd".
+
+  @param[in]  Data            ELF file data.
+  @param[in]  Size            ELF file size.
+  @param[out] SectionOffset   File offset of the "initrd" section data.
+  @param[out] SectionSize     Size of the "initrd" section data.
+
+  @retval EFI_SUCCESS         Found the "initrd" section.
+  @retval EFI_NOT_FOUND       No section named "initrd".
 **/
 STATIC
 EFI_STATUS
-ParseElf64 (
+FindElfInitrdSection (
   IN  CONST UINT8  *Data,
   IN  UINTN        Size,
-  OUT UINTN        *PayloadStart
+  OUT UINTN        *SectionOffset,
+  OUT UINTN        *SectionSize
   )
 {
   CONST ELF64_EHDR  *Ehdr;
-  CONST ELF64_PHDR  *Phdr;
+  CONST ELF64_SHDR  *Shdr;
+  CONST ELF64_SHDR  *StrTabShdr;
+  CONST CHAR8       *StrTab;
+  UINTN             StrTabSize;
   UINTN             i;
-  UINTN             PtLoadEnd;
+  UINTN             ShOff;
 
   if (Size < sizeof (ELF64_EHDR)) {
     return EFI_INVALID_PARAMETER;
@@ -64,37 +76,81 @@ ParseElf64 (
     return EFI_INVALID_PARAMETER;
   }
 
-  DEBUG ((DEBUG_WARN, "[RouterOS] ELF64 AArch64, %d program headers, entry 0x%lx\n",
-          Ehdr->e_phnum, Ehdr->e_entry));
+  DEBUG ((DEBUG_WARN, "[RouterOS] ELF64 AArch64, %d sections, entry 0x%lx\n",
+          Ehdr->e_shnum, Ehdr->e_entry));
+  DEBUG ((DEBUG_WARN, "[RouterOS] ELF shoff=0x%lx shentsize=%d shnum=%d shstrndx=%d filesize=0x%x\n",
+          Ehdr->e_shoff, Ehdr->e_shentsize, Ehdr->e_shnum, Ehdr->e_shstrndx, Size));
 
   //
-  // Find PT_LOAD end — payload data starts after it
+  // Validate section headers are present
   //
-  PtLoadEnd = 0;
-  for (i = 0; i < Ehdr->e_phnum; i++) {
-    UINTN  PhOff;
+  if (Ehdr->e_shnum == 0 || Ehdr->e_shoff == 0 || Ehdr->e_shstrndx == ELF_SHN_UNDEF) {
+    DEBUG ((DEBUG_WARN, "[RouterOS] ELF has no section headers\n"));
+    return EFI_NOT_FOUND;
+  }
 
-    PhOff = (UINTN)Ehdr->e_phoff + i * Ehdr->e_phentsize;
-    if (PhOff + sizeof (ELF64_PHDR) > Size) {
+  //
+  // Get the section name string table
+  //
+  ShOff = (UINTN)Ehdr->e_shoff + Ehdr->e_shstrndx * Ehdr->e_shentsize;
+  if (ShOff + sizeof (ELF64_SHDR) > Size) {
+    DEBUG ((DEBUG_WARN, "[RouterOS] Section string table header out of bounds (shdr at 0x%x, filesize 0x%x)\n",
+            ShOff, Size));
+    return EFI_NOT_FOUND;
+  }
+
+  StrTabShdr = (CONST ELF64_SHDR *)(Data + ShOff);
+  DEBUG ((DEBUG_WARN, "[RouterOS] String table section: offset=0x%lx size=0x%lx\n",
+          StrTabShdr->sh_offset, StrTabShdr->sh_size));
+
+  if ((UINTN)StrTabShdr->sh_offset + (UINTN)StrTabShdr->sh_size > Size) {
+    DEBUG ((DEBUG_WARN, "[RouterOS] Section string table data out of bounds (0x%lx+0x%lx > 0x%x)\n",
+            StrTabShdr->sh_offset, StrTabShdr->sh_size, Size));
+    return EFI_NOT_FOUND;
+  }
+
+  StrTab     = (CONST CHAR8 *)(Data + (UINTN)StrTabShdr->sh_offset);
+  StrTabSize = (UINTN)StrTabShdr->sh_size;
+
+  //
+  // Search all sections for one named "initrd"
+  //
+  for (i = 0; i < Ehdr->e_shnum; i++) {
+    CONST CHAR8  *Name;
+
+    ShOff = (UINTN)Ehdr->e_shoff + i * Ehdr->e_shentsize;
+    if (ShOff + sizeof (ELF64_SHDR) > Size) {
       break;
     }
 
-    Phdr = (CONST ELF64_PHDR *)(Data + PhOff);
-    if (Phdr->p_type == ELF_PT_LOAD) {
-      UINTN  SegEnd;
+    Shdr = (CONST ELF64_SHDR *)(Data + ShOff);
 
-      SegEnd = (UINTN)Phdr->p_offset + (UINTN)Phdr->p_filesz;
-      if (SegEnd > PtLoadEnd) {
-        PtLoadEnd = SegEnd;
+    if (Shdr->sh_name >= StrTabSize) {
+      continue;
+    }
+
+    Name = StrTab + Shdr->sh_name;
+
+    if (AsciiStrCmp (Name, "initrd") == 0) {
+      UINTN  SecOff  = (UINTN)Shdr->sh_offset;
+      UINTN  SecSize = (UINTN)Shdr->sh_size;
+
+      if (SecOff + SecSize > Size) {
+        DEBUG ((DEBUG_WARN, "[RouterOS] \"initrd\" section data out of bounds\n"));
+        return EFI_NOT_FOUND;
       }
 
-      DEBUG ((DEBUG_WARN, "[RouterOS] PT_LOAD: offset 0x%x, filesz 0x%x, end 0x%x\n",
-              (UINTN)Phdr->p_offset, (UINTN)Phdr->p_filesz, SegEnd));
+      DEBUG ((DEBUG_WARN, "[RouterOS] Found section \"initrd\": offset 0x%x, size %u bytes\n",
+              SecOff, SecSize));
+
+      *SectionOffset = SecOff;
+      *SectionSize   = SecSize;
+      return EFI_SUCCESS;
     }
   }
 
-  *PayloadStart = PtLoadEnd;
-  return EFI_SUCCESS;
+  DEBUG ((DEBUG_WARN, "[RouterOS] No section named \"initrd\" found\n"));
+  return EFI_NOT_FOUND;
 }
 
 /**
@@ -157,9 +213,6 @@ TryXzDecompress (
   xz_dec_end (Xz);
 
   if (Ret == XZ_STREAM_END) {
-    //
-    // Clean completion
-    //
     *OutBuffer = Output;
     *OutSize   = Buf.out_pos;
     return EFI_SUCCESS;
@@ -178,30 +231,40 @@ TryXzDecompress (
     return EFI_SUCCESS;
   }
 
+  DEBUG ((DEBUG_WARN, "[RouterOS] XZ decode failed: ret=%d, in_pos=%u/%u, out_pos=%u\n",
+          (int)Ret, Buf.in_pos, Buf.in_size, Buf.out_pos));
   FreePool (Output);
   return EFI_COMPROMISED_DATA;
 }
 
 /**
-  Find the next XZ magic at or after StartOffset in Data.
+  Search for a CPIO archive ("070701") within a buffer, scanning forward.
 
-  @retval TRUE   Found; *Offset set to the position.
+  @param[in]  Data       Buffer to search.
+  @param[in]  DataSize   Size of buffer.
+  @param[out] CpioStart  Offset where CPIO magic was found.
+
+  @retval TRUE   Found; *CpioStart set.
   @retval FALSE  Not found.
 **/
 STATIC
 BOOLEAN
-FindNextXzStream (
+FindCpioArchive (
   IN  CONST UINT8  *Data,
   IN  UINTN        DataSize,
-  IN  UINTN        StartOffset,
-  OUT UINTN        *Offset
+  OUT UINTN        *CpioStart
   )
 {
   UINTN  i;
 
-  for (i = StartOffset; i + XZ_MAGIC_SIZE <= DataSize; i++) {
-    if (CompareMem (&Data[i], gXzMagic, XZ_MAGIC_SIZE) == 0) {
-      *Offset = i;
+  //
+  // CPIO is appended after the kernel PE image. Start searching after
+  // the first few KB (skip the PE header area). Align to 4 bytes since
+  // CPIO entries are typically 4-byte aligned.
+  //
+  for (i = 0x1000; i + CPIO_MAGIC_SIZE <= DataSize; i += 4) {
+    if (CompareMem (&Data[i], CPIO_MAGIC, CPIO_MAGIC_SIZE) == 0) {
+      *CpioStart = i;
       return TRUE;
     }
   }
@@ -213,9 +276,9 @@ FindNextXzStream (
   Extract the EFI stub kernel and CPIO initrd from the boot/kernel ELF.
 
   Flow:
-    1. Parse ELF64 → find PT_LOAD end
-    2. Find first XZ stream after PT_LOAD → decompress → EFI stub (MZ header)
-    3. Find next XZ stream after the first → decompress → initrd (CPIO "070701")
+    1. Parse ELF64 section headers → find "initrd" section
+    2. Locate XZ stream within the section → decompress → EFI stub (MZ header)
+    3. Scan the decompressed blob for a CPIO archive → initrd
 **/
 EFI_STATUS
 ExtractKernelAndInitrd (
@@ -228,10 +291,12 @@ ExtractKernelAndInitrd (
   )
 {
   EFI_STATUS  Status;
-  UINTN       PayloadStart;
+  UINTN       SecOffset;
+  UINTN       SecSize;
   UINTN       XzOffset;
   UINT8       *DecompBuf;
   UINTN       DecompSize;
+  UINTN       CpioOffset;
 
   *StubBuffer = NULL;
   *StubSize   = 0;
@@ -239,24 +304,65 @@ ExtractKernelAndInitrd (
   *InitrdSize = 0;
 
   //
-  // Step 1: Parse ELF64 and find where payload data starts (after PT_LOAD)
+  // Step 1: Try section-based "initrd" lookup first, fall back to PT_LOAD
   //
-  Status = ParseElf64 (KernelElf, KernelElfSize, &PayloadStart);
-  if (EFI_ERROR (Status)) {
-    return Status;
+  Status = FindElfInitrdSection (KernelElf, KernelElfSize, &SecOffset, &SecSize);
+  if (!EFI_ERROR (Status)) {
+    XzOffset = SecOffset;
+  } else {
+    //
+    // Section headers unavailable — fall back to finding XZ after PT_LOAD
+    //
+    CONST ELF64_EHDR  *Ehdr = (CONST ELF64_EHDR *)KernelElf;
+    UINTN             PtLoadEnd = 0;
+    UINTN             i;
+
+    for (i = 0; i < Ehdr->e_phnum; i++) {
+      UINTN              PhOff = (UINTN)Ehdr->e_phoff + i * Ehdr->e_phentsize;
+      CONST ELF64_PHDR  *Phdr;
+
+      if (PhOff + sizeof (ELF64_PHDR) > KernelElfSize) break;
+      Phdr = (CONST ELF64_PHDR *)(KernelElf + PhOff);
+      if (Phdr->p_type == ELF_PT_LOAD) {
+        UINTN SegEnd = (UINTN)Phdr->p_offset + (UINTN)Phdr->p_filesz;
+        if (SegEnd > PtLoadEnd) PtLoadEnd = SegEnd;
+      }
+    }
+    XzOffset = PtLoadEnd;
+    SecSize  = KernelElfSize - PtLoadEnd;
+    DEBUG ((DEBUG_WARN, "[RouterOS] Using PT_LOAD fallback, payload after 0x%x\n", PtLoadEnd));
   }
 
   //
-  // Step 2: Find and decompress the first XZ stream after PT_LOAD → EFI stub
+  // Step 2: Find and decompress XZ stream
   //
-  XzOffset = PayloadStart;
-  if (!FindNextXzStream (KernelElf, KernelElfSize, XzOffset, &XzOffset)) {
-    DEBUG ((DEBUG_WARN, "[RouterOS] No XZ stream found after PT_LOAD (offset 0x%x)\n",
-            PayloadStart));
-    return EFI_NOT_FOUND;
+  {
+    BOOLEAN Found = FALSE;
+    UINTN   i;
+    UINTN   SearchEnd = SecOffset + SecSize;
+
+    if (XzOffset == SecOffset) {
+      SearchEnd = SecOffset + SecSize;
+    } else {
+      SecOffset = XzOffset;
+      SearchEnd = KernelElfSize;
+    }
+
+    for (i = XzOffset; i + XZ_MAGIC_SIZE <= SearchEnd; i++) {
+      if (CompareMem (&KernelElf[i], gXzMagic, XZ_MAGIC_SIZE) == 0) {
+        XzOffset = i;
+        Found = TRUE;
+        break;
+      }
+    }
+
+    if (!Found) {
+      DEBUG ((DEBUG_WARN, "[RouterOS] No XZ stream found\n"));
+      return EFI_NOT_FOUND;
+    }
   }
 
-  DEBUG ((DEBUG_WARN, "[RouterOS] Kernel XZ stream at ELF offset 0x%x\n", XzOffset));
+  DEBUG ((DEBUG_WARN, "[RouterOS] XZ stream at ELF offset 0x%x\n", XzOffset));
 
   Status = TryXzDecompress (
              &KernelElf[XzOffset],
@@ -265,63 +371,40 @@ ExtractKernelAndInitrd (
              &DecompSize
              );
   if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_WARN, "[RouterOS] Kernel XZ decompression failed: %r\n", Status));
+    DEBUG ((DEBUG_WARN, "[RouterOS] XZ decompression failed: %r\n", Status));
     return Status;
   }
 
-  DEBUG ((DEBUG_WARN, "[RouterOS] Kernel decompressed: %u bytes\n", DecompSize));
+  DEBUG ((DEBUG_WARN, "[RouterOS] Decompressed: %u bytes\n", DecompSize));
 
   //
-  // Verify MZ header
+  // Verify MZ header (EFI stub kernel)
   //
   if (DecompSize < 2 || DecompBuf[0] != 'M' || DecompBuf[1] != 'Z') {
-    DEBUG ((DEBUG_WARN, "[RouterOS] Not an EFI stub (first bytes: 0x%02x 0x%02x) — bail\n",
+    DEBUG ((DEBUG_WARN, "[RouterOS] Not an EFI stub (first bytes: 0x%02x 0x%02x)\n",
             DecompSize > 0 ? DecompBuf[0] : 0,
             DecompSize > 1 ? DecompBuf[1] : 0));
     FreePool (DecompBuf);
     return EFI_NOT_FOUND;
   }
 
-  DEBUG ((DEBUG_WARN, "[RouterOS] EFI stub verified (MZ header)\n"));
-  *StubBuffer = DecompBuf;
-  *StubSize   = DecompSize;
+  DEBUG ((DEBUG_WARN, "[RouterOS] EFI stub kernel verified (MZ header)\n"));
 
   //
-  // Step 3: Find and decompress the next XZ stream → CPIO initrd
+  // Step 3: Scan decompressed blob for CPIO archive at the end.
+  // The decompressed data = EFI stub kernel + CPIO initrd appended.
   //
-  XzOffset += 1;  // advance past the kernel stream's magic
-  if (!FindNextXzStream (KernelElf, KernelElfSize, XzOffset, &XzOffset)) {
-    DEBUG ((DEBUG_WARN, "[RouterOS] No initrd XZ stream found, proceeding without initrd\n"));
-    return EFI_SUCCESS;
-  }
-
-  DEBUG ((DEBUG_WARN, "[RouterOS] Initrd XZ stream at ELF offset 0x%x\n", XzOffset));
-
-  Status = TryXzDecompress (
-             &KernelElf[XzOffset],
-             KernelElfSize - XzOffset,
-             &DecompBuf,
-             &DecompSize
-             );
-  if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_WARN, "[RouterOS] Initrd XZ decompression failed: %r, proceeding without\n",
-            Status));
-    return EFI_SUCCESS;
-  }
-
-  DEBUG ((DEBUG_WARN, "[RouterOS] Initrd decompressed: %u bytes\n", DecompSize));
-
-  //
-  // Verify CPIO magic
-  //
-  if (DecompSize >= CPIO_MAGIC_SIZE &&
-      CompareMem (DecompBuf, CPIO_MAGIC, CPIO_MAGIC_SIZE) == 0) {
-    DEBUG ((DEBUG_WARN, "[RouterOS] CPIO initrd verified (%u bytes)\n", DecompSize));
-    *InitrdData = DecompBuf;
-    *InitrdSize = DecompSize;
+  if (FindCpioArchive (DecompBuf, DecompSize, &CpioOffset)) {
+    DEBUG ((DEBUG_WARN, "[RouterOS] CPIO initrd found at offset 0x%x, size %u bytes\n",
+            CpioOffset, DecompSize - CpioOffset));
+    *StubBuffer = DecompBuf;
+    *StubSize   = CpioOffset;
+    *InitrdData = DecompBuf + CpioOffset;
+    *InitrdSize = DecompSize - CpioOffset;
   } else {
-    DEBUG ((DEBUG_WARN, "[RouterOS] Decompressed data is not CPIO, skipping\n"));
-    FreePool (DecompBuf);
+    DEBUG ((DEBUG_WARN, "[RouterOS] No CPIO initrd found in decompressed data\n"));
+    *StubBuffer = DecompBuf;
+    *StubSize   = DecompSize;
   }
 
   return EFI_SUCCESS;

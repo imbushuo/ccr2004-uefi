@@ -28,7 +28,116 @@ CONST UINT8 gXzMagic[XZ_MAGIC_SIZE] = { 0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00 };
 #define XZ_DICT_MAX  (4U * 1024U * 1024U)
 
 /**
+  Detect the MikroTik ELF payload shift.
+
+  MikroTik's NPK kernel ELF has all payload data shifted right by a
+  small number of bytes (typically 10) from the offsets declared in the
+  ELF header.  The section header area at e_shoff starts with the raw
+  .shstrtab string table data, followed by the real section entries.
+
+  Detection: look for ".shstrtab" (or ".text") ASCII at e_shoff.
+  If found, the file uses the shifted format.
+
+  @param[in]  Data   ELF file data.
+  @param[in]  Ehdr   Parsed ELF header.
+
+  @return  Shift in bytes (0 if no shift detected).
+**/
+STATIC
+UINTN
+DetectMikroTikElfShift (
+  IN  CONST UINT8      *Data,
+  IN  CONST ELF64_EHDR *Ehdr
+  )
+{
+  CONST CHAR8  *ShArea;
+
+  ShArea = (CONST CHAR8 *)(Data + (UINTN)Ehdr->e_shoff);
+
+  //
+  // MikroTik shifted ELF: the section header area starts with the
+  // .shstrtab string data instead of a NULL section entry.
+  // Check for ".shstrtab" or ".text" ASCII at the start.
+  //
+  if (ShArea[0] == '.' ||
+      (ShArea[0] == '\0' && ShArea[1] == '.'))
+  {
+    //
+    // Find the end of the string table by scanning for a run of zeros
+    // that precedes the first real NULL section header (all-zero).
+    //
+    UINTN  MaxScan;
+    UINTN  i;
+    UINTN  StrTabSize;
+
+    MaxScan = (UINTN)Ehdr->e_shnum * Ehdr->e_shentsize;
+    StrTabSize = 0;
+
+    for (i = 1; i < MaxScan - 8; i++) {
+      //
+      // A NULL section header starts with 8 zero bytes (sh_name=0, sh_type=0).
+      // The string table may end with a few zero bytes before that.
+      //
+      if (ShArea[i] == '\0') {
+        UINTN  ZeroRun;
+
+        for (ZeroRun = 0; i + ZeroRun < MaxScan && ShArea[i + ZeroRun] == '\0'; ZeroRun++) {
+          //
+          // Check if the bytes after this zero run look like a valid
+          // NULL section entry followed by PROGBITS entries.
+          //
+          UINTN  CandidateOff;
+
+          CandidateOff = i + ZeroRun;
+          if (CandidateOff + sizeof (ELF64_SHDR) * 2 <= MaxScan) {
+            CONST ELF64_SHDR  *MaybeNull;
+            CONST ELF64_SHDR  *MaybeText;
+
+            MaybeNull = (CONST ELF64_SHDR *)(ShArea + CandidateOff);
+            MaybeText = MaybeNull + 1;
+
+            if (MaybeNull->sh_name == 0 &&
+                MaybeNull->sh_type == 0 &&
+                MaybeNull->sh_addr == 0 &&
+                MaybeNull->sh_offset == 0 &&
+                MaybeText->sh_type == 1 &&   // PROGBITS
+                MaybeText->sh_addr >= 0x1000000 &&
+                MaybeText->sh_addr <= 0x2000000)
+            {
+              StrTabSize = CandidateOff;
+              DEBUG ((DEBUG_WARN, "[RouterOS] MikroTik shifted ELF: strtab %u bytes in section header area\n",
+                      StrTabSize));
+              //
+              // The shift = strtab bytes that displace section entries.
+              // The real section entries start at e_shoff + StrTabSize.
+              // The data shift = StrTabSize modulo section entry alignment,
+              // but practically it's the strtab size itself that tells us
+              // how much ALL file offsets are shifted.
+              //
+              // For file offset fixup: offsets in the real section headers
+              // already account for the shift (they point to correct positions
+              // in the shifted file). We just need to find the sections.
+              //
+              return StrTabSize;
+            }
+          }
+        }
+
+        if (StrTabSize != 0) break;
+      }
+    }
+  }
+
+  return 0;
+}
+
+/**
   Validate ELF64 AArch64 and locate the section named "initrd".
+
+  Handles MikroTik's non-standard ELF format where:
+  - The section header area starts with .shstrtab string data
+  - Real section entries follow after the string data
+  - All section data offsets are shifted by the string table size
 
   @param[in]  Data            ELF file data.
   @param[in]  Size            ELF file size.
@@ -49,9 +158,11 @@ FindElfInitrdSection (
 {
   CONST ELF64_EHDR  *Ehdr;
   CONST ELF64_SHDR  *Shdr;
-  CONST ELF64_SHDR  *StrTabShdr;
   CONST CHAR8       *StrTab;
   UINTN             StrTabSize;
+  UINTN             MtkShift;
+  UINTN             RealShOff;
+  UINTN             RealShNum;
   UINTN             i;
   UINTN             ShOff;
 
@@ -78,47 +189,72 @@ FindElfInitrdSection (
 
   DEBUG ((DEBUG_WARN, "[RouterOS] ELF64 AArch64, %d sections, entry 0x%lx\n",
           Ehdr->e_shnum, Ehdr->e_entry));
-  DEBUG ((DEBUG_WARN, "[RouterOS] ELF shoff=0x%lx shentsize=%d shnum=%d shstrndx=%d filesize=0x%x\n",
-          Ehdr->e_shoff, Ehdr->e_shentsize, Ehdr->e_shnum, Ehdr->e_shstrndx, Size));
 
-  //
-  // Validate section headers are present
-  //
   if (Ehdr->e_shnum == 0 || Ehdr->e_shoff == 0 || Ehdr->e_shstrndx == ELF_SHN_UNDEF) {
     DEBUG ((DEBUG_WARN, "[RouterOS] ELF has no section headers\n"));
     return EFI_NOT_FOUND;
   }
 
-  //
-  // Get the section name string table
-  //
-  ShOff = (UINTN)Ehdr->e_shoff + Ehdr->e_shstrndx * Ehdr->e_shentsize;
-  if (ShOff + sizeof (ELF64_SHDR) > Size) {
-    DEBUG ((DEBUG_WARN, "[RouterOS] Section string table header out of bounds (shdr at 0x%x, filesize 0x%x)\n",
-            ShOff, Size));
+  if ((UINTN)Ehdr->e_shoff + Ehdr->e_shnum * Ehdr->e_shentsize > Size) {
+    DEBUG ((DEBUG_WARN, "[RouterOS] Section headers extend beyond file\n"));
     return EFI_NOT_FOUND;
   }
 
-  StrTabShdr = (CONST ELF64_SHDR *)(Data + ShOff);
-  DEBUG ((DEBUG_WARN, "[RouterOS] String table section: offset=0x%lx size=0x%lx\n",
-          StrTabShdr->sh_offset, StrTabShdr->sh_size));
+  //
+  // Detect MikroTik's shifted ELF format.
+  //
+  // In the NPK kernel ELF, the section header area at e_shoff does NOT
+  // contain standard section headers.  Instead it starts with the raw
+  // .shstrtab string table data, followed by real section entries.
+  // All payload file offsets (section data, segment data) are shifted
+  // right by the size of this embedded string table.
+  //
+  MtkShift = DetectMikroTikElfShift (Data, Ehdr);
 
-  if ((UINTN)StrTabShdr->sh_offset + (UINTN)StrTabShdr->sh_size > Size) {
-    DEBUG ((DEBUG_WARN, "[RouterOS] Section string table data out of bounds (0x%lx+0x%lx > 0x%x)\n",
-            StrTabShdr->sh_offset, StrTabShdr->sh_size, Size));
-    return EFI_NOT_FOUND;
+  if (MtkShift > 0) {
+    //
+    // MikroTik format: string table is at e_shoff, real sections follow.
+    //
+    StrTab      = (CONST CHAR8 *)(Data + (UINTN)Ehdr->e_shoff);
+    StrTabSize  = MtkShift;
+    RealShOff   = (UINTN)Ehdr->e_shoff + MtkShift;
+    RealShNum   = ((UINTN)Ehdr->e_shnum * Ehdr->e_shentsize - MtkShift) / Ehdr->e_shentsize;
+
+    DEBUG ((DEBUG_WARN, "[RouterOS] MikroTik ELF: shift=%u, strtab at 0x%lx (%u bytes), "
+            "%u real sections at 0x%x\n",
+            MtkShift, Ehdr->e_shoff, StrTabSize, RealShNum, RealShOff));
+  } else {
+    //
+    // Standard ELF: read .shstrtab from the section header it points to.
+    //
+    CONST ELF64_SHDR  *StrTabShdr;
+
+    ShOff = (UINTN)Ehdr->e_shoff + Ehdr->e_shstrndx * Ehdr->e_shentsize;
+    if (ShOff + sizeof (ELF64_SHDR) > Size) {
+      return EFI_NOT_FOUND;
+    }
+
+    StrTabShdr = (CONST ELF64_SHDR *)(Data + ShOff);
+    if ((UINTN)StrTabShdr->sh_offset + (UINTN)StrTabShdr->sh_size > Size) {
+      DEBUG ((DEBUG_WARN, "[RouterOS] Standard ELF .shstrtab out of bounds\n"));
+      return EFI_NOT_FOUND;
+    }
+
+    StrTab     = (CONST CHAR8 *)(Data + (UINTN)StrTabShdr->sh_offset);
+    StrTabSize = (UINTN)StrTabShdr->sh_size;
+    RealShOff  = (UINTN)Ehdr->e_shoff;
+    RealShNum  = Ehdr->e_shnum;
   }
 
-  StrTab     = (CONST CHAR8 *)(Data + (UINTN)StrTabShdr->sh_offset);
-  StrTabSize = (UINTN)StrTabShdr->sh_size;
-
   //
-  // Search all sections for one named "initrd"
+  // Search sections for "initrd"
   //
-  for (i = 0; i < Ehdr->e_shnum; i++) {
+  for (i = 0; i < RealShNum; i++) {
     CONST CHAR8  *Name;
+    UINTN        SecOff;
+    UINTN        SecSize;
 
-    ShOff = (UINTN)Ehdr->e_shoff + i * Ehdr->e_shentsize;
+    ShOff = RealShOff + i * Ehdr->e_shentsize;
     if (ShOff + sizeof (ELF64_SHDR) > Size) {
       break;
     }
@@ -132,16 +268,21 @@ FindElfInitrdSection (
     Name = StrTab + Shdr->sh_name;
 
     if (AsciiStrCmp (Name, "initrd") == 0) {
-      UINTN  SecOff  = (UINTN)Shdr->sh_offset;
-      UINTN  SecSize = (UINTN)Shdr->sh_size;
+      //
+      // In MikroTik format, section offsets are shifted by MtkShift.
+      // Adjust to get the real file offset.
+      //
+      SecOff  = (UINTN)Shdr->sh_offset + MtkShift;
+      SecSize = (UINTN)Shdr->sh_size;
 
       if (SecOff + SecSize > Size) {
-        DEBUG ((DEBUG_WARN, "[RouterOS] \"initrd\" section data out of bounds\n"));
+        DEBUG ((DEBUG_WARN, "[RouterOS] \"initrd\" section data out of bounds "
+                "(0x%x + 0x%x > 0x%x)\n", SecOff, SecSize, Size));
         return EFI_NOT_FOUND;
       }
 
-      DEBUG ((DEBUG_WARN, "[RouterOS] Found section \"initrd\": offset 0x%x, size %u bytes\n",
-              SecOff, SecSize));
+      DEBUG ((DEBUG_WARN, "[RouterOS] Found section \"initrd\": offset 0x%x (+shift %u), "
+              "size %u bytes\n", SecOff, MtkShift, SecSize));
 
       *SectionOffset = SecOff;
       *SectionSize   = SecSize;

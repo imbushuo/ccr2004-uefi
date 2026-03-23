@@ -411,7 +411,7 @@ BuildTree (
 
   Volume->Root = (Volume->MaxObjId >= 1) ? Volume->Objects[1] : NULL;
 
-  DEBUG ((DEBUG_WARN, "[MtYaffs2] Tree built: %u live objects\n", LiveCount));
+  DEBUG ((DEBUG_INFO, "[MtYaffs2] Tree built: %u live objects\n", LiveCount));
 }
 
 /**
@@ -500,7 +500,7 @@ Yaffs2DetectFilesystem (
     }
 
     if (SeqOk && FoundHeader) {
-      DEBUG ((DEBUG_WARN, "[MtYaffs2] Detected YAFFS2 on NAND (block %u, seq 0x%x)\n",
+      DEBUG ((DEBUG_INFO, "[MtYaffs2] Detected YAFFS2 on NAND (block %u, seq 0x%x)\n",
               Block, FirstSeq));
       return EFI_SUCCESS;
     }
@@ -871,7 +871,7 @@ Yaffs2ScanNand (
   PageCount      = 0;
   HeaderCount    = 0;
 
-  DEBUG ((DEBUG_WARN, "[MtYaffs2] Scanning %u blocks (summary-accelerated)...\n",
+  DEBUG ((DEBUG_INFO, "[MtYaffs2] Scanning %u blocks (summary-accelerated)...\n",
           Nand->NumBlocks));
 
   for (Block = 0; Block < Nand->NumBlocks; Block++) {
@@ -899,7 +899,7 @@ Yaffs2ScanNand (
     }
   }
 
-  DEBUG ((DEBUG_WARN,
+  DEBUG ((DEBUG_INFO,
           "[MtYaffs2] Scanned %u used blocks (%u via summary, %u fallback), "
           "%u pages (%u headers)\n",
           UsedBlocks, SummaryBlocks, FallbackBlocks, PageCount, HeaderCount));
@@ -911,6 +911,6 @@ Yaffs2ScanNand (
     return EFI_VOLUME_CORRUPTED;
   }
 
-  DEBUG ((DEBUG_WARN, "[MtYaffs2] Scan complete, root obj_id=1\n"));
+  DEBUG ((DEBUG_INFO, "[MtYaffs2] Scan complete, root obj_id=1\n"));
   return EFI_SUCCESS;
 }

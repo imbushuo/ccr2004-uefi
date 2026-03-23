@@ -312,7 +312,17 @@ PlatformBootManagerAfterConsole (
   EfiBootManagerRegisterBootDescriptionHandler (PlatformNandBootDescription);
 
   //
-  // Register UEFI Shell as a boot option.
+  // Register RouterOS NPK Loader as the primary boot option.
+  // It auto-boots after the 3-second timeout (PcdPlatformBootTimeOut).
+  //
+  PlatformRegisterFvBootOption (
+    &mRouterOSLoaderFileGuid,
+    L"RouterOS",
+    LOAD_OPTION_ACTIVE
+    );
+
+  //
+  // Register UEFI Shell as a secondary boot option.
   //
   PlatformRegisterFvBootOption (
     &mUefiShellFileGuid,
@@ -320,17 +330,7 @@ PlatformBootManagerAfterConsole (
     LOAD_OPTION_ACTIVE | LOAD_OPTION_CATEGORY_APP
     );
 
-  //
-  // Register RouterOS NPK Loader as a boot option (CATEGORY_APP only,
-  // not ACTIVE — appears in Boot Manager menu but is never auto-booted).
-  //
-  PlatformRegisterFvBootOption (
-    &mRouterOSLoaderFileGuid,
-    L"RouterOS NPK Loader",
-    LOAD_OPTION_CATEGORY_APP
-    );
-
-  Print (L"Press ESC or F2 for Setup.\n");
+  Print (L"Press ESC or F2 for Setup. Booting RouterOS in 3 seconds...\n");
 }
 
 VOID

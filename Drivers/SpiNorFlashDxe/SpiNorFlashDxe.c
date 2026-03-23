@@ -80,6 +80,7 @@ SpiLog (
   ...
   )
 {
+#ifdef LOG_SPI_ACCESS
   VA_LIST  Args;
   CHAR8    Buf[128];
   UINTN    Len;
@@ -89,6 +90,7 @@ SpiLog (
   VA_END (Args);
 
   SerialPortWrite ((UINT8 *)Buf, Len);
+#endif
 }
 
 /* ---------- Low-level SPI helpers ---------- */

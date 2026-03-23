@@ -60,7 +60,7 @@ Yaffs2AllocateVolume (
 
     EndTick   = GetPerformanceCounter ();
     ElapsedMs = ((EndTick - StartTick) * 1000) / Freq;
-    DEBUG ((DEBUG_WARN, "[MtYaffs2] NAND scan took %lu ms\n", ElapsedMs));
+    DEBUG ((DEBUG_INFO, "[MtYaffs2] NAND scan took %lu ms\n", ElapsedMs));
   }
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "[MtYaffs2] NAND scan failed: %r\n", Status));
@@ -94,7 +94,7 @@ Yaffs2AllocateVolume (
   }
 
   *VolumeOut = Volume;
-  DEBUG ((DEBUG_WARN, "[MtYaffs2] Volume ready on handle %p\n", Handle));
+  DEBUG ((DEBUG_INFO, "[MtYaffs2] Volume ready on handle %p\n", Handle));
   return EFI_SUCCESS;
 }
 

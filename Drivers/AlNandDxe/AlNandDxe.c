@@ -222,9 +222,9 @@ AlNandScanBadBlocks (
       Ctx->BadBlockMap[Block / 8] |= (UINT8)(1 << (Block % 8));
       BadCount++;
       if (!EFI_ERROR (Status)) {
-        DEBUG ((DEBUG_WARN, "AlNandDxe: Bad block %u (OOB=0x%02x)\n", Block, OobByte));
+        DEBUG ((DEBUG_INFO, "AlNandDxe: Bad block %u (OOB=0x%02x)\n", Block, OobByte));
       } else {
-        DEBUG ((DEBUG_WARN, "AlNandDxe: Bad block %u (read error)\n", Block));
+        DEBUG ((DEBUG_INFO, "AlNandDxe: Bad block %u (read error)\n", Block));
       }
     }
   }
@@ -608,17 +608,17 @@ AlNandDxeInitialize (
     return Status;
   }
 
-  DEBUG ((DEBUG_WARN, "AlNandDxe: NAND ID: %02x %02x %02x %02x %02x %02x %02x %02x\n",
+  DEBUG ((DEBUG_INFO, "AlNandDxe: NAND ID: %02x %02x %02x %02x %02x %02x %02x %02x\n",
     IdBuf[0], IdBuf[1], IdBuf[2], IdBuf[3], IdBuf[4], IdBuf[5], IdBuf[6], IdBuf[7]));
 
   if (IdBuf[0] != 0x98) {
-    DEBUG ((DEBUG_WARN, "AlNandDxe: Non-Toshiba NAND (mfr=0x%02x)\n", IdBuf[0]));
+    DEBUG ((DEBUG_INFO, "AlNandDxe: Non-Toshiba NAND (mfr=0x%02x)\n", IdBuf[0]));
   }
 
   if ((IdBuf[4] & TOSHIBA_NAND_ID5_IS_BENAND) != 0) {
-    DEBUG ((DEBUG_WARN, "AlNandDxe: Toshiba BENAND detected (ID5=0x%02x)\n", IdBuf[4]));
+    DEBUG ((DEBUG_INFO, "AlNandDxe: Toshiba BENAND detected (ID5=0x%02x)\n", IdBuf[4]));
   } else {
-    DEBUG ((DEBUG_WARN, "AlNandDxe: BENAND flag not set (ID5=0x%02x)\n", IdBuf[4]));
+    DEBUG ((DEBUG_INFO, "AlNandDxe: BENAND flag not set (ID5=0x%02x)\n", IdBuf[4]));
   }
 
   //
@@ -686,7 +686,7 @@ AlNandDxeInitialize (
     return Status;
   }
 
-  DEBUG ((DEBUG_WARN, "AlNandDxe: NAND at 0x%lx, %u pages, %u bytes/page\n",
+  DEBUG ((DEBUG_INFO, "AlNandDxe: NAND at 0x%lx, %u pages, %u bytes/page\n",
     (UINT64)AL_NAND_BASE, Ctx->NumPages, Ctx->PageSize));
 
   return EFI_SUCCESS;

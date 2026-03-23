@@ -1416,7 +1416,7 @@ int al_eth_adapter_init(struct al_hal_eth_adapter *adapter, struct al_eth_adapte
 	    && (!params->skip_adapter_init))
 		al_unit_adapter_init(params->unit_adapter);
 	else if (!params->unit_adapter)
-		al_warn("%s: non optimal adapter configuration\n", __func__);
+		al_info("%s: non optimal adapter configuration\n", __func__);
 
 	/* initialize Tx udma */
 	udma_params.udma_regs_base = adapter->udma_regs_base;

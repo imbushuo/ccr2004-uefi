@@ -37,7 +37,7 @@ enum {
 
 #define TYPE0_STRINGS                                    \
   "MikroTik\0"                    /* 1 Vendor */         \
-  "2026.317.308\0"                         /* 2 BiosVersion */    \
+  "2026.323.1254\0"                         /* 2 BiosVersion */    \
   __DATE__"\0"                    /* 3 BiosReleaseDate */
 
 #define TYPE1_STRINGS                                    \

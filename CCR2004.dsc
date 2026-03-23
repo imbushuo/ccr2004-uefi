@@ -14,7 +14,7 @@
 [Defines]
   PLATFORM_NAME                  = CCR2004
   PLATFORM_GUID                  = b3a4c5d6-7890-1234-abcd-ef5678901234
-  PLATFORM_VERSION               = 2026.317.308
+  PLATFORM_VERSION               = 2026.323.1254
   DSC_SPECIFICATION              = 0x00010005
   OUTPUT_DIRECTORY               = Build/CCR2004
   SUPPORTED_ARCHITECTURES        = AARCH64
@@ -250,7 +250,7 @@
   gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x80000002
 
   # Firmware version string
-  gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString|L"CCR2004 2026.317.308"
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString|L"CCR2004 2026.323.1254"
 
   # Emulated variable store (RAM-backed, no flash)
   # Sizes increased for TLS CA certificate storage
@@ -317,7 +317,10 @@
   ArmPkg/Drivers/ArmGicDxe/ArmGicV3Dxe.inf
   ArmPkg/Drivers/TimerDxe/TimerDxe.inf
   MdeModulePkg/Core/RuntimeDxe/RuntimeDxe.inf
-  MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf
+  MdeModulePkg/Universal/ResetSystemRuntimeDxe/ResetSystemRuntimeDxe.inf {
+    <LibraryClasses>
+      DebugLib|MdePkg/Library/BaseDebugLibNull/BaseDebugLibNull.inf
+  }
   MdeModulePkg/Universal/Variable/RuntimeDxe/VariableRuntimeDxe.inf
   MdeModulePkg/Universal/CapsuleRuntimeDxe/CapsuleRuntimeDxe.inf
   MdeModulePkg/Universal/MonotonicCounterRuntimeDxe/MonotonicCounterRuntimeDxe.inf

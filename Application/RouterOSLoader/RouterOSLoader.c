@@ -10,6 +10,7 @@
 **/
 
 #include "RouterOSLoader.h"
+#include "npk_parser.h"
 
 //
 // Path to the RouterOS system image within the YAFFS2 filesystem
@@ -18,13 +19,6 @@ STATIC CONST CHAR16 mImagePath[] = L"\\var\\pdb\\system\\image";
 
 /**
   Read a file completely into an allocated buffer.
-
-  @param[in]  Root      Open root directory handle.
-  @param[in]  Path      File path to open.
-  @param[out] FileData  Allocated buffer with file contents. Caller must FreePool.
-  @param[out] FileSize  Size of the file in bytes.
-
-  @retval EFI_SUCCESS   File read successfully.
 **/
 STATIC
 EFI_STATUS
@@ -47,9 +41,6 @@ ReadFileToBuffer (
     return Status;
   }
 
-  //
-  // Get file size
-  //
   InfoSize = 0;
   Status = File->GetInfo (File, &gEfiFileInfoGuid, &InfoSize, NULL);
   if (Status != EFI_BUFFER_TOO_SMALL) {
@@ -73,9 +64,6 @@ ReadFileToBuffer (
   ReadSize = (UINTN)Info->FileSize;
   FreePool (Info);
 
-  //
-  // Allocate and read
-  //
   Buffer = AllocatePool (ReadSize);
   if (Buffer == NULL) {
     File->Close (File);
@@ -97,11 +85,6 @@ ReadFileToBuffer (
 
 /**
   Scan all SimpleFileSystem handles to find and read the NPK image file.
-
-  @param[out] NpkData  Allocated buffer with NPK contents. Caller must FreePool.
-  @param[out] NpkSize  Size of the NPK data.
-
-  @retval EFI_SUCCESS  NPK file found and read.
 **/
 STATIC
 EFI_STATUS
@@ -172,15 +155,17 @@ RouterOSLoaderEntry (
   IN EFI_SYSTEM_TABLE  *SystemTable
   )
 {
-  EFI_STATUS   Status;
-  UINT8        *NpkData;
-  UINTN        NpkSize;
-  CONST UINT8  *KernelElf;
-  UINTN        KernelElfSize;
-  UINT8        *StubBuffer;
-  UINTN        StubSize;
-  UINT8        *InitrdData;
-  UINTN        InitrdSize;
+  EFI_STATUS      Status;
+  UINT8           *NpkData;
+  UINTN           NpkSize;
+  npk_package_t   *Package;
+  npk_status_t    NpkStatus;
+  void            *KernelElf;
+  size_t          KernelElfSize;
+  UINT8           *StubBuffer;
+  UINTN           StubSize;
+  UINT8           *InitrdData;
+  UINTN           InitrdSize;
 
   DEBUG ((DEBUG_WARN, "[RouterOS] RouterOS Kernel Loader starting\n"));
 
@@ -194,14 +179,29 @@ RouterOSLoaderEntry (
   }
 
   //
-  // Step 2: Parse NPK to find boot/kernel
+  // Step 2: Parse NPK and extract boot/kernel
   //
-  Status = NpkFindBootKernel (NpkData, NpkSize, &KernelElf, &KernelElfSize);
-  if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_WARN, "[RouterOS] Failed to find boot/kernel in NPK: %r\n", Status));
+  NpkStatus = npk_parse_buffer (NpkData, NpkSize, &Package);
+  if (NpkStatus != NPK_STATUS_OK) {
+    DEBUG ((DEBUG_WARN, "[RouterOS] NPK parse failed: %a\n",
+            npk_status_string (NpkStatus)));
     FreePool (NpkData);
-    return Status;
+    return EFI_COMPROMISED_DATA;
   }
+
+  DEBUG ((DEBUG_WARN, "[RouterOS] NPK parsed: %u entries\n", Package->entry_count));
+
+  NpkStatus = npk_extract_file (Package, "boot/kernel", &KernelElf, &KernelElfSize);
+  npk_package_free (Package);
+  FreePool (NpkData);
+
+  if (NpkStatus != NPK_STATUS_OK) {
+    DEBUG ((DEBUG_WARN, "[RouterOS] boot/kernel extraction failed: %a\n",
+            npk_status_string (NpkStatus)));
+    return EFI_NOT_FOUND;
+  }
+
+  DEBUG ((DEBUG_WARN, "[RouterOS] boot/kernel extracted: %u bytes\n", KernelElfSize));
 
   //
   // Step 3: Extract EFI stub kernel + initrd from boot/kernel ELF
@@ -215,10 +215,7 @@ RouterOSLoaderEntry (
              &InitrdSize
              );
 
-  //
-  // Free NPK data — kernel ELF pointer was into this buffer
-  //
-  FreePool (NpkData);
+  npk_file_buffer_free (KernelElf);
 
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_WARN, "[RouterOS] Failed to extract kernel: %r\n", Status));

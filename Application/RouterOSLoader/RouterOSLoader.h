@@ -19,26 +19,8 @@
 #include <Library/UefiLib.h>
 #include <Protocol/DevicePath.h>
 #include <Protocol/LoadedImage.h>
-#include <Protocol/LoadFile2.h>
 #include <Protocol/SimpleFileSystem.h>
 #include <Guid/FileInfo.h>
-#include <Guid/LinuxEfiInitrdMedia.h>
-
-//
-// NPK item header: 2 byte type + 4 byte size (all little-endian)
-//
-#define NPK_HEADER_SIZE  6
-
-//
-// NPK item type for file payload
-//
-#define NPK_TYPE_FILE_PAYLOAD  4
-
-//
-// File entry header size within a type-4 NPK item:
-//   24 bytes metadata + 4 bytes data_size + 2 bytes name_length = 30 bytes
-//
-#define NPK_FILE_ENTRY_HEADER_SIZE  30
 
 //
 // XZ magic bytes
@@ -58,20 +40,15 @@ extern CONST UINT8 gXzMagic[XZ_MAGIC_SIZE];
 #define CPIO_MAGIC_SIZE  6
 
 //
-// CPIO trailer marker
-//
-#define CPIO_TRAILER       "TRAILER!!!"
-#define CPIO_TRAILER_SIZE  10
-
-//
 // ELF64 constants
 //
-#define ELF_MAGIC       0x464C457FU  // "\x7FELF"
-#define ELF_CLASS64     2
-#define ELF_DATA_LSB    1
-#define ELF_MACHINE_AARCH64  183
-#define ELF_PT_LOAD     1
-#define ELF_SHN_UNDEF   0
+#define ELF_MAGIC             0x464C457FU  // "\x7FELF"
+#define ELF_CLASS64           2
+#define ELF_DATA_LSB          1
+#define ELF_MACHINE_AARCH64   183
+#define ELF_PT_LOAD           1
+#define ELF_SHT_PROGBITS      1
+#define ELF_SHT_STRTAB        3
 
 #pragma pack(1)
 typedef struct {
@@ -117,40 +94,15 @@ typedef struct {
 #pragma pack()
 
 //
-// NpkParser.c
-//
-
-/**
-  Parse NPK data to find the "boot/kernel" file entry.
-
-  @param[in]  NpkData       Pointer to NPK file data in memory.
-  @param[in]  NpkSize       Size of NPK data in bytes.
-  @param[out] KernelData    On success, pointer to the kernel file data within NpkData.
-  @param[out] KernelSize    On success, size of the kernel file data.
-
-  @retval EFI_SUCCESS       boot/kernel found.
-  @retval EFI_NOT_FOUND     No boot/kernel entry in the NPK.
-**/
-EFI_STATUS
-NpkFindBootKernel (
-  IN  CONST UINT8  *NpkData,
-  IN  UINTN        NpkSize,
-  OUT CONST UINT8  **KernelData,
-  OUT UINTN        *KernelSize
-  );
-
-//
 // KernelExtract.c
 //
 
 /**
-  Extract the EFI stub kernel and optional initrd (CPIO) from the
-  boot/kernel ELF64 blob by finding and decompressing XZ streams.
+  Extract the EFI stub kernel and optional initrd from the boot/kernel ELF64.
 
   @param[in]  KernelElf       Pointer to boot/kernel ELF data.
   @param[in]  KernelElfSize   Size of boot/kernel ELF data.
   @param[out] StubBuffer      Allocated buffer holding decompressed EFI stub kernel.
-                               Caller must FreePool.
   @param[out] StubSize        Size of the decompressed EFI stub kernel.
   @param[out] InitrdData      Pointer into StubBuffer for CPIO initrd, or NULL.
   @param[out] InitrdSize      Size of CPIO initrd, or 0.
@@ -174,15 +126,6 @@ ExtractKernelAndInitrd (
 
 /**
   Boot the Linux kernel via EFI stub protocol.
-
-  @param[in] ImageHandle     This application's image handle.
-  @param[in] KernelBuffer    Decompressed EFI stub kernel image.
-  @param[in] KernelSize      Size of kernel image.
-  @param[in] InitrdData      CPIO initrd data, or NULL.
-  @param[in] InitrdSize      Size of initrd data, or 0.
-
-  @retval EFI_SUCCESS        Should not return on success.
-  @retval other              Error from LoadImage/StartImage.
 **/
 EFI_STATUS
 BootLinuxKernel (

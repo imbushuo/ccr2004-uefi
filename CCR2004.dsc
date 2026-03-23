@@ -52,6 +52,7 @@
   CpuLib|MdePkg/Library/BaseCpuLib/BaseCpuLib.inf
   SafeIntLib|MdePkg/Library/BaseSafeIntLib/BaseSafeIntLib.inf
   SynchronizationLib|MdePkg/Library/BaseSynchronizationLib/BaseSynchronizationLib.inf
+  ZlibLib|Platform/MikroTik/CCR2004/Library/ZlibLib/ZlibLib.inf
   OrderedCollectionLib|MdePkg/Library/BaseOrderedCollectionRedBlackTreeLib/BaseOrderedCollectionRedBlackTreeLib.inf
 
   # Debug

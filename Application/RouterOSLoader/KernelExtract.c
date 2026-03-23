@@ -1,16 +1,11 @@
 /** @file
-  Kernel extraction — ELF64 section-based parsing, XZ decompression,
+  Kernel extraction — standard ELF64 parsing, XZ decompression,
   CPIO initrd detection.
 
-  The boot/kernel from the NPK is an ELF64 with a section named "initrd"
-  containing XZ-compressed data.  Decompressing that section yields an
-  EFI stub kernel (MZ/PE image) with a CPIO initrd archive appended at
-  the end.
-
-  MikroTik's XZ streams have valid LZMA2 data but truncated/corrupt
-  container metadata (missing or bad footer/CRC). We use XZ_PREALLOC mode
-  which preserves partial output on error, then accept the result if the
-  LZMA2 payload decompressed successfully.
+  The boot/kernel from the NPK is an ELF64 with an "initrd" section
+  containing XZ-compressed data.  Decompressing yields an EFI stub
+  kernel (MZ/PE image).  A CPIO initrd archive may be appended after
+  the kernel in the decompressed output.
 
   Copyright (c) 2024, MikroTik. All rights reserved.
   SPDX-License-Identifier: BSD-2-Clause-Patent
@@ -21,150 +16,35 @@
 
 CONST UINT8 gXzMagic[XZ_MAGIC_SIZE] = { 0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00 };
 
-//
-// Dictionary size for XZ_PREALLOC mode (4 MB — covers the 2 MB dict
-// used by MikroTik's XZ streams with headroom).
-//
 #define XZ_DICT_MAX  (4U * 1024U * 1024U)
 
 /**
-  Detect the MikroTik ELF payload shift.
+  Standard ELF64 section lookup — find section by name.
 
-  MikroTik's NPK kernel ELF has all payload data shifted right by a
-  small number of bytes (typically 10) from the offsets declared in the
-  ELF header.  The section header area at e_shoff starts with the raw
-  .shstrtab string table data, followed by the real section entries.
+  @param[in]  Data          ELF file data.
+  @param[in]  Size          ELF file size.
+  @param[in]  Name          Section name to find.
+  @param[out] SecOffset     File offset of section data.
+  @param[out] SecSize       Size of section data.
 
-  Detection: look for ".shstrtab" (or ".text") ASCII at e_shoff.
-  If found, the file uses the shifted format.
-
-  @param[in]  Data   ELF file data.
-  @param[in]  Ehdr   Parsed ELF header.
-
-  @return  Shift in bytes (0 if no shift detected).
-**/
-STATIC
-UINTN
-DetectMikroTikElfShift (
-  IN  CONST UINT8      *Data,
-  IN  CONST ELF64_EHDR *Ehdr
-  )
-{
-  CONST CHAR8  *ShArea;
-
-  ShArea = (CONST CHAR8 *)(Data + (UINTN)Ehdr->e_shoff);
-
-  //
-  // MikroTik shifted ELF: the section header area starts with the
-  // .shstrtab string data instead of a NULL section entry.
-  // Check for ".shstrtab" or ".text" ASCII at the start.
-  //
-  if (ShArea[0] == '.' ||
-      (ShArea[0] == '\0' && ShArea[1] == '.'))
-  {
-    //
-    // Find the end of the string table by scanning for a run of zeros
-    // that precedes the first real NULL section header (all-zero).
-    //
-    UINTN  MaxScan;
-    UINTN  i;
-    UINTN  StrTabSize;
-
-    MaxScan = (UINTN)Ehdr->e_shnum * Ehdr->e_shentsize;
-    StrTabSize = 0;
-
-    for (i = 1; i < MaxScan - 8; i++) {
-      //
-      // A NULL section header starts with 8 zero bytes (sh_name=0, sh_type=0).
-      // The string table may end with a few zero bytes before that.
-      //
-      if (ShArea[i] == '\0') {
-        UINTN  ZeroRun;
-
-        for (ZeroRun = 0; i + ZeroRun < MaxScan && ShArea[i + ZeroRun] == '\0'; ZeroRun++) {
-          //
-          // Check if the bytes after this zero run look like a valid
-          // NULL section entry followed by PROGBITS entries.
-          //
-          UINTN  CandidateOff;
-
-          CandidateOff = i + ZeroRun;
-          if (CandidateOff + sizeof (ELF64_SHDR) * 2 <= MaxScan) {
-            CONST ELF64_SHDR  *MaybeNull;
-            CONST ELF64_SHDR  *MaybeText;
-
-            MaybeNull = (CONST ELF64_SHDR *)(ShArea + CandidateOff);
-            MaybeText = MaybeNull + 1;
-
-            if (MaybeNull->sh_name == 0 &&
-                MaybeNull->sh_type == 0 &&
-                MaybeNull->sh_addr == 0 &&
-                MaybeNull->sh_offset == 0 &&
-                MaybeText->sh_type == 1 &&   // PROGBITS
-                MaybeText->sh_addr >= 0x1000000 &&
-                MaybeText->sh_addr <= 0x2000000)
-            {
-              StrTabSize = CandidateOff;
-              DEBUG ((DEBUG_WARN, "[RouterOS] MikroTik shifted ELF: strtab %u bytes in section header area\n",
-                      StrTabSize));
-              //
-              // The shift = strtab bytes that displace section entries.
-              // The real section entries start at e_shoff + StrTabSize.
-              // The data shift = StrTabSize modulo section entry alignment,
-              // but practically it's the strtab size itself that tells us
-              // how much ALL file offsets are shifted.
-              //
-              // For file offset fixup: offsets in the real section headers
-              // already account for the shift (they point to correct positions
-              // in the shifted file). We just need to find the sections.
-              //
-              return StrTabSize;
-            }
-          }
-        }
-
-        if (StrTabSize != 0) break;
-      }
-    }
-  }
-
-  return 0;
-}
-
-/**
-  Validate ELF64 AArch64 and locate the section named "initrd".
-
-  Handles MikroTik's non-standard ELF format where:
-  - The section header area starts with .shstrtab string data
-  - Real section entries follow after the string data
-  - All section data offsets are shifted by the string table size
-
-  @param[in]  Data            ELF file data.
-  @param[in]  Size            ELF file size.
-  @param[out] SectionOffset   File offset of the "initrd" section data.
-  @param[out] SectionSize     Size of the "initrd" section data.
-
-  @retval EFI_SUCCESS         Found the "initrd" section.
-  @retval EFI_NOT_FOUND       No section named "initrd".
+  @retval EFI_SUCCESS       Found.
+  @retval EFI_NOT_FOUND     Section not present.
 **/
 STATIC
 EFI_STATUS
-FindElfInitrdSection (
+FindElfSection (
   IN  CONST UINT8  *Data,
   IN  UINTN        Size,
-  OUT UINTN        *SectionOffset,
-  OUT UINTN        *SectionSize
+  IN  CONST CHAR8  *Name,
+  OUT UINTN        *SecOffset,
+  OUT UINTN        *SecSize
   )
 {
   CONST ELF64_EHDR  *Ehdr;
-  CONST ELF64_SHDR  *Shdr;
+  CONST ELF64_SHDR  *StrTabShdr;
   CONST CHAR8       *StrTab;
-  UINTN             StrTabSize;
-  UINTN             MtkShift;
-  UINTN             RealShOff;
-  UINTN             RealShNum;
+  UINTN             StrTabOff;
   UINTN             i;
-  UINTN             ShOff;
 
   if (Size < sizeof (ELF64_EHDR)) {
     return EFI_INVALID_PARAMETER;
@@ -190,121 +70,75 @@ FindElfInitrdSection (
   DEBUG ((DEBUG_WARN, "[RouterOS] ELF64 AArch64, %d sections, entry 0x%lx\n",
           Ehdr->e_shnum, Ehdr->e_entry));
 
-  if (Ehdr->e_shnum == 0 || Ehdr->e_shoff == 0 || Ehdr->e_shstrndx == ELF_SHN_UNDEF) {
-    DEBUG ((DEBUG_WARN, "[RouterOS] ELF has no section headers\n"));
-    return EFI_NOT_FOUND;
-  }
-
-  if ((UINTN)Ehdr->e_shoff + Ehdr->e_shnum * Ehdr->e_shentsize > Size) {
-    DEBUG ((DEBUG_WARN, "[RouterOS] Section headers extend beyond file\n"));
+  if (Ehdr->e_shnum == 0 || Ehdr->e_shoff == 0 ||
+      Ehdr->e_shstrndx >= Ehdr->e_shnum) {
+    DEBUG ((DEBUG_WARN, "[RouterOS] ELF has no usable section headers\n"));
     return EFI_NOT_FOUND;
   }
 
   //
-  // Detect MikroTik's shifted ELF format.
+  // Locate .shstrtab
   //
-  // In the NPK kernel ELF, the section header area at e_shoff does NOT
-  // contain standard section headers.  Instead it starts with the raw
-  // .shstrtab string table data, followed by real section entries.
-  // All payload file offsets (section data, segment data) are shifted
-  // right by the size of this embedded string table.
-  //
-  MtkShift = DetectMikroTikElfShift (Data, Ehdr);
-
-  if (MtkShift > 0) {
-    //
-    // MikroTik format: string table is at e_shoff, real sections follow.
-    //
-    StrTab      = (CONST CHAR8 *)(Data + (UINTN)Ehdr->e_shoff);
-    StrTabSize  = MtkShift;
-    RealShOff   = (UINTN)Ehdr->e_shoff + MtkShift;
-    RealShNum   = ((UINTN)Ehdr->e_shnum * Ehdr->e_shentsize - MtkShift) / Ehdr->e_shentsize;
-
-    DEBUG ((DEBUG_WARN, "[RouterOS] MikroTik ELF: shift=%u, strtab at 0x%lx (%u bytes), "
-            "%u real sections at 0x%x\n",
-            MtkShift, Ehdr->e_shoff, StrTabSize, RealShNum, RealShOff));
-  } else {
-    //
-    // Standard ELF: read .shstrtab from the section header it points to.
-    //
-    CONST ELF64_SHDR  *StrTabShdr;
-
-    ShOff = (UINTN)Ehdr->e_shoff + Ehdr->e_shstrndx * Ehdr->e_shentsize;
-    if (ShOff + sizeof (ELF64_SHDR) > Size) {
-      return EFI_NOT_FOUND;
-    }
-
-    StrTabShdr = (CONST ELF64_SHDR *)(Data + ShOff);
-    if ((UINTN)StrTabShdr->sh_offset + (UINTN)StrTabShdr->sh_size > Size) {
-      DEBUG ((DEBUG_WARN, "[RouterOS] Standard ELF .shstrtab out of bounds\n"));
-      return EFI_NOT_FOUND;
-    }
-
-    StrTab     = (CONST CHAR8 *)(Data + (UINTN)StrTabShdr->sh_offset);
-    StrTabSize = (UINTN)StrTabShdr->sh_size;
-    RealShOff  = (UINTN)Ehdr->e_shoff;
-    RealShNum  = Ehdr->e_shnum;
+  StrTabOff = (UINTN)Ehdr->e_shoff + Ehdr->e_shstrndx * Ehdr->e_shentsize;
+  if (StrTabOff + sizeof (ELF64_SHDR) > Size) {
+    return EFI_NOT_FOUND;
   }
 
-  //
-  // Search sections for "initrd"
-  //
-  for (i = 0; i < RealShNum; i++) {
-    CONST CHAR8  *Name;
-    UINTN        SecOff;
-    UINTN        SecSize;
+  StrTabShdr = (CONST ELF64_SHDR *)(Data + StrTabOff);
+  if ((UINTN)StrTabShdr->sh_offset + (UINTN)StrTabShdr->sh_size > Size) {
+    DEBUG ((DEBUG_WARN, "[RouterOS] .shstrtab out of bounds\n"));
+    return EFI_NOT_FOUND;
+  }
 
-    ShOff = RealShOff + i * Ehdr->e_shentsize;
+  StrTab = (CONST CHAR8 *)(Data + (UINTN)StrTabShdr->sh_offset);
+
+  //
+  // Iterate sections
+  //
+  for (i = 0; i < Ehdr->e_shnum; i++) {
+    UINTN              ShOff;
+    CONST ELF64_SHDR  *Shdr;
+    CONST CHAR8       *SecName;
+
+    ShOff = (UINTN)Ehdr->e_shoff + i * Ehdr->e_shentsize;
     if (ShOff + sizeof (ELF64_SHDR) > Size) {
       break;
     }
 
     Shdr = (CONST ELF64_SHDR *)(Data + ShOff);
 
-    if (Shdr->sh_name >= StrTabSize) {
+    if (Shdr->sh_name >= (UINTN)StrTabShdr->sh_size) {
       continue;
     }
 
-    Name = StrTab + Shdr->sh_name;
+    SecName = StrTab + Shdr->sh_name;
 
-    if (AsciiStrCmp (Name, "initrd") == 0) {
-      //
-      // In MikroTik format, section offsets are shifted by MtkShift.
-      // Adjust to get the real file offset.
-      //
-      SecOff  = (UINTN)Shdr->sh_offset + MtkShift;
-      SecSize = (UINTN)Shdr->sh_size;
-
-      if (SecOff + SecSize > Size) {
-        DEBUG ((DEBUG_WARN, "[RouterOS] \"initrd\" section data out of bounds "
-                "(0x%x + 0x%x > 0x%x)\n", SecOff, SecSize, Size));
+    if (AsciiStrCmp (SecName, Name) == 0) {
+      if ((UINTN)Shdr->sh_offset + (UINTN)Shdr->sh_size > Size) {
+        DEBUG ((DEBUG_WARN, "[RouterOS] Section \"%a\" data out of bounds\n", Name));
         return EFI_NOT_FOUND;
       }
 
-      DEBUG ((DEBUG_WARN, "[RouterOS] Found section \"initrd\": offset 0x%x (+shift %u), "
-              "size %u bytes\n", SecOff, MtkShift, SecSize));
-
-      *SectionOffset = SecOff;
-      *SectionSize   = SecSize;
+      *SecOffset = (UINTN)Shdr->sh_offset;
+      *SecSize   = (UINTN)Shdr->sh_size;
+      DEBUG ((DEBUG_WARN, "[RouterOS] Section \"%a\": offset 0x%x, size %u\n",
+              Name, *SecOffset, *SecSize));
       return EFI_SUCCESS;
     }
   }
 
-  DEBUG ((DEBUG_WARN, "[RouterOS] No section named \"initrd\" found\n"));
+  DEBUG ((DEBUG_WARN, "[RouterOS] Section \"%a\" not found\n", Name));
   return EFI_NOT_FOUND;
 }
 
 /**
-  Try to decompress an XZ stream using PREALLOC mode (tolerant of
-  truncated XZ containers — preserves output even on CRC/footer errors).
+  Decompress a single XZ stream (SINGLE mode).
 
-  @param[in]  Data        Start of compressed data (at XZ magic).
-  @param[in]  MaxSize     Maximum bytes available.
-  @param[out] OutBuffer   Allocated output buffer (caller must FreePool).
-  @param[out] OutSize     Actual decompressed size.
-
-  @retval EFI_SUCCESS     Decompression produced output.
-  @retval other           No useful output produced.
+  @param[in]  Data         XZ stream data.
+  @param[in]  MaxSize      Maximum input bytes available.
+  @param[out] OutBuffer    Allocated output buffer.
+  @param[out] OutSize      Decompressed size.
+  @param[out] InConsumed   Optional: bytes consumed from input.
 **/
 STATIC
 EFI_STATUS
@@ -312,7 +146,8 @@ TryXzDecompress (
   IN  CONST UINT8  *Data,
   IN  UINTN        MaxSize,
   OUT UINT8        **OutBuffer,
-  OUT UINTN        *OutSize
+  OUT UINTN        *OutSize,
+  OUT UINTN        *InConsumed  OPTIONAL
   )
 {
   struct xz_dec  *Xz;
@@ -322,17 +157,15 @@ TryXzDecompress (
 
   Output = AllocatePool (XZ_OUTPUT_MAX_SIZE);
   if (Output == NULL) {
+    DEBUG ((DEBUG_WARN, "[RouterOS] Failed to allocate %u byte output buffer\n",
+            XZ_OUTPUT_MAX_SIZE));
     return EFI_OUT_OF_RESOURCES;
   }
 
   xz_crc32_init ();
-
-  //
-  // Use PREALLOC mode: on XZ container errors (bad CRC, truncated footer),
-  // the already-decompressed LZMA2 output is preserved in Buf.out.
-  //
-  Xz = xz_dec_init (XZ_PREALLOC, XZ_DICT_MAX);
+  Xz = xz_dec_init (XZ_SINGLE, 0);
   if (Xz == NULL) {
+    DEBUG ((DEBUG_WARN, "[RouterOS] xz_dec_init failed\n"));
     FreePool (Output);
     return EFI_OUT_OF_RESOURCES;
   }
@@ -344,14 +177,19 @@ TryXzDecompress (
   Buf.out_pos  = 0;
   Buf.out_size = XZ_OUTPUT_MAX_SIZE;
 
-  //
-  // Run decompression — may need multiple calls in multi-call mode
-  //
-  do {
-    Ret = xz_dec_run (Xz, &Buf);
-  } while (Ret == XZ_OK);
+  DEBUG ((DEBUG_WARN, "[RouterOS] XZ input: %u bytes, output buffer: %u bytes\n",
+          MaxSize, XZ_OUTPUT_MAX_SIZE));
+
+  Ret = xz_dec_run (Xz, &Buf);
+
+  DEBUG ((DEBUG_WARN, "[RouterOS] XZ result: ret=%d, in_pos=%u/%u, out_pos=%u\n",
+          (int)Ret, Buf.in_pos, Buf.in_size, Buf.out_pos));
 
   xz_dec_end (Xz);
+
+  if (InConsumed != NULL) {
+    *InConsumed = Buf.in_pos;
+  }
 
   if (Ret == XZ_STREAM_END) {
     *OutBuffer = Output;
@@ -359,53 +197,117 @@ TryXzDecompress (
     return EFI_SUCCESS;
   }
 
-  //
-  // Error — but PREALLOC mode preserves partial output.
-  // Accept it if we got meaningful data (the LZMA2 payload was valid,
-  // only the XZ container wrapper was truncated/corrupt).
-  //
   if (Buf.out_pos > 0) {
-    DEBUG ((DEBUG_WARN, "[RouterOS] XZ container error (ret=%d) but got %u bytes of output\n",
+    DEBUG ((DEBUG_WARN, "[RouterOS] XZ container error (ret=%d) but got %u bytes\n",
             (int)Ret, Buf.out_pos));
     *OutBuffer = Output;
     *OutSize   = Buf.out_pos;
     return EFI_SUCCESS;
   }
 
-  DEBUG ((DEBUG_WARN, "[RouterOS] XZ decode failed: ret=%d, in_pos=%u/%u, out_pos=%u\n",
-          (int)Ret, Buf.in_pos, Buf.in_size, Buf.out_pos));
   FreePool (Output);
   return EFI_COMPROMISED_DATA;
 }
 
 /**
-  Search for a CPIO archive ("070701") within a buffer, scanning forward.
+  Get the actual PE file size by scanning section headers for the
+  maximum (PointerToRawData + SizeOfRawData).  This is the on-disk
+  file size, NOT SizeOfImage (which includes virtual BSS).
 
-  @param[in]  Data       Buffer to search.
-  @param[in]  DataSize   Size of buffer.
-  @param[out] CpioStart  Offset where CPIO magic was found.
+  @param[in]  Data      Buffer starting with MZ header.
+  @param[in]  DataSize  Buffer size.
+  @param[out] FileSize  Actual PE file extent in bytes.
 
-  @retval TRUE   Found; *CpioStart set.
-  @retval FALSE  Not found.
+  @retval TRUE  Parsed successfully.
+  @retval FALSE Not a valid PE/COFF image.
 **/
 STATIC
 BOOLEAN
-FindCpioArchive (
+GetPeFileSize (
   IN  CONST UINT8  *Data,
   IN  UINTN        DataSize,
-  OUT UINTN        *CpioStart
+  OUT UINTN        *FileSize
+  )
+{
+  UINT32  PeOffset;
+  UINT16  NumSections;
+  UINT16  OptHdrSize;
+  UINTN   SecStart;
+  UINTN   MaxEnd;
+  UINT16  i;
+
+  if (DataSize < 0x40 || Data[0] != 'M' || Data[1] != 'Z') {
+    return FALSE;
+  }
+
+  PeOffset = Data[0x3C] | ((UINT32)Data[0x3D] << 8) |
+             ((UINT32)Data[0x3E] << 16) | ((UINT32)Data[0x3F] << 24);
+
+  if (PeOffset + 24 > DataSize) {
+    return FALSE;
+  }
+
+  if (Data[PeOffset] != 'P' || Data[PeOffset + 1] != 'E' ||
+      Data[PeOffset + 2] != 0 || Data[PeOffset + 3] != 0) {
+    return FALSE;
+  }
+
+  //
+  // COFF header: NumSections at +6, SizeOfOptionalHeader at +20
+  //
+  NumSections = Data[PeOffset + 6] | ((UINT16)Data[PeOffset + 7] << 8);
+  OptHdrSize  = Data[PeOffset + 20] | ((UINT16)Data[PeOffset + 21] << 8);
+
+  //
+  // Section headers start after PE sig (4) + COFF header (20) + optional header
+  //
+  SecStart = PeOffset + 24 + OptHdrSize;
+  if (SecStart + (UINTN)NumSections * 40 > DataSize) {
+    return FALSE;
+  }
+
+  //
+  // Find the maximum file extent across all sections
+  //
+  MaxEnd = 0;
+  for (i = 0; i < NumSections; i++) {
+    UINTN  So;
+    UINT32 RawSize;
+    UINT32 RawPtr;
+    UINTN  End;
+
+    So     = SecStart + (UINTN)i * 40;
+    RawSize = Data[So + 16] | ((UINT32)Data[So + 17] << 8) |
+              ((UINT32)Data[So + 18] << 16) | ((UINT32)Data[So + 19] << 24);
+    RawPtr  = Data[So + 20] | ((UINT32)Data[So + 21] << 8) |
+              ((UINT32)Data[So + 22] << 16) | ((UINT32)Data[So + 23] << 24);
+    End = (UINTN)RawPtr + RawSize;
+    if (End > MaxEnd) {
+      MaxEnd = End;
+    }
+  }
+
+  *FileSize = MaxEnd;
+  return TRUE;
+}
+
+/**
+  Find the first XZ magic at or after StartOffset.
+**/
+STATIC
+BOOLEAN
+FindXzStream (
+  IN  CONST UINT8  *Data,
+  IN  UINTN        DataSize,
+  IN  UINTN        StartOffset,
+  OUT UINTN        *Offset
   )
 {
   UINTN  i;
 
-  //
-  // CPIO is appended after the kernel PE image. Start searching after
-  // the first few KB (skip the PE header area). Align to 4 bytes since
-  // CPIO entries are typically 4-byte aligned.
-  //
-  for (i = 0x1000; i + CPIO_MAGIC_SIZE <= DataSize; i += 4) {
-    if (CompareMem (&Data[i], CPIO_MAGIC, CPIO_MAGIC_SIZE) == 0) {
-      *CpioStart = i;
+  for (i = StartOffset; i + XZ_MAGIC_SIZE <= DataSize; i++) {
+    if (CompareMem (&Data[i], gXzMagic, XZ_MAGIC_SIZE) == 0) {
+      *Offset = i;
       return TRUE;
     }
   }
@@ -416,10 +318,13 @@ FindCpioArchive (
 /**
   Extract the EFI stub kernel and CPIO initrd from the boot/kernel ELF.
 
-  Flow:
-    1. Parse ELF64 section headers → find "initrd" section
-    2. Locate XZ stream within the section → decompress → EFI stub (MZ header)
-    3. Scan the decompressed blob for a CPIO archive → initrd
+  The "initrd" ELF section contains two concatenated XZ streams:
+    Stream 1 -> EFI stub kernel (MZ/PE image)
+    Stream 2 -> CPIO initrd archive
+
+  xz-embedded in SINGLE mode decompresses one stream per call and
+  reports how much input was consumed (in_pos). We use in_pos to
+  find stream 2 after stream 1 completes.
 **/
 EFI_STATUS
 ExtractKernelAndInitrd (
@@ -432,12 +337,16 @@ ExtractKernelAndInitrd (
   )
 {
   EFI_STATUS  Status;
-  UINTN       SecOffset;
-  UINTN       SecSize;
+  UINTN       SearchStart;
+  UINTN       SearchEnd;
   UINTN       XzOffset;
-  UINT8       *DecompBuf;
-  UINTN       DecompSize;
-  UINTN       CpioOffset;
+  UINT8       *KernelBuf;
+  UINTN       KernelDecompSize;
+  UINTN       KernelFileSize;
+  UINTN       Stream1Consumed;
+  UINTN       Stream2Start;
+  UINT8       *InitrdBuf;
+  UINTN       InitrdDecompSize;
 
   *StubBuffer = NULL;
   *StubSize   = 0;
@@ -445,15 +354,13 @@ ExtractKernelAndInitrd (
   *InitrdSize = 0;
 
   //
-  // Step 1: Try section-based "initrd" lookup first, fall back to PT_LOAD
+  // Find "initrd" section via standard ELF section headers
   //
-  Status = FindElfInitrdSection (KernelElf, KernelElfSize, &SecOffset, &SecSize);
+  Status = FindElfSection (KernelElf, KernelElfSize, "initrd",
+                           &SearchStart, &SearchEnd);
   if (!EFI_ERROR (Status)) {
-    XzOffset = SecOffset;
+    SearchEnd = SearchStart + SearchEnd;
   } else {
-    //
-    // Section headers unavailable — fall back to finding XZ after PT_LOAD
-    //
     CONST ELF64_EHDR  *Ehdr = (CONST ELF64_EHDR *)KernelElf;
     UINTN             PtLoadEnd = 0;
     UINTN             i;
@@ -469,83 +376,102 @@ ExtractKernelAndInitrd (
         if (SegEnd > PtLoadEnd) PtLoadEnd = SegEnd;
       }
     }
-    XzOffset = PtLoadEnd;
-    SecSize  = KernelElfSize - PtLoadEnd;
-    DEBUG ((DEBUG_WARN, "[RouterOS] Using PT_LOAD fallback, payload after 0x%x\n", PtLoadEnd));
+
+    SearchStart = PtLoadEnd;
+    SearchEnd   = KernelElfSize;
+    DEBUG ((DEBUG_WARN, "[RouterOS] No initrd section, scanning after PT_LOAD at 0x%x\n",
+            PtLoadEnd));
   }
 
   //
-  // Step 2: Find and decompress XZ stream
+  // Locate first XZ stream
   //
-  {
-    BOOLEAN Found = FALSE;
-    UINTN   i;
-    UINTN   SearchEnd = SecOffset + SecSize;
-
-    if (XzOffset == SecOffset) {
-      SearchEnd = SecOffset + SecSize;
-    } else {
-      SecOffset = XzOffset;
-      SearchEnd = KernelElfSize;
-    }
-
-    for (i = XzOffset; i + XZ_MAGIC_SIZE <= SearchEnd; i++) {
-      if (CompareMem (&KernelElf[i], gXzMagic, XZ_MAGIC_SIZE) == 0) {
-        XzOffset = i;
-        Found = TRUE;
-        break;
-      }
-    }
-
-    if (!Found) {
-      DEBUG ((DEBUG_WARN, "[RouterOS] No XZ stream found\n"));
-      return EFI_NOT_FOUND;
-    }
-  }
-
-  DEBUG ((DEBUG_WARN, "[RouterOS] XZ stream at ELF offset 0x%x\n", XzOffset));
-
-  Status = TryXzDecompress (
-             &KernelElf[XzOffset],
-             KernelElfSize - XzOffset,
-             &DecompBuf,
-             &DecompSize
-             );
-  if (EFI_ERROR (Status)) {
-    DEBUG ((DEBUG_WARN, "[RouterOS] XZ decompression failed: %r\n", Status));
-    return Status;
-  }
-
-  DEBUG ((DEBUG_WARN, "[RouterOS] Decompressed: %u bytes\n", DecompSize));
-
-  //
-  // Verify MZ header (EFI stub kernel)
-  //
-  if (DecompSize < 2 || DecompBuf[0] != 'M' || DecompBuf[1] != 'Z') {
-    DEBUG ((DEBUG_WARN, "[RouterOS] Not an EFI stub (first bytes: 0x%02x 0x%02x)\n",
-            DecompSize > 0 ? DecompBuf[0] : 0,
-            DecompSize > 1 ? DecompBuf[1] : 0));
-    FreePool (DecompBuf);
+  if (!FindXzStream (KernelElf, SearchEnd, SearchStart, &XzOffset)) {
+    DEBUG ((DEBUG_WARN, "[RouterOS] No XZ stream found\n"));
     return EFI_NOT_FOUND;
   }
 
-  DEBUG ((DEBUG_WARN, "[RouterOS] EFI stub kernel verified (MZ header)\n"));
+  DEBUG ((DEBUG_WARN, "[RouterOS] XZ stream 1 at ELF offset 0x%x\n", XzOffset));
 
   //
-  // Step 3: Scan decompressed blob for CPIO archive at the end.
-  // The decompressed data = EFI stub kernel + CPIO initrd appended.
+  // Decompress stream 1 -> EFI stub kernel
   //
-  if (FindCpioArchive (DecompBuf, DecompSize, &CpioOffset)) {
-    DEBUG ((DEBUG_WARN, "[RouterOS] CPIO initrd found at offset 0x%x, size %u bytes\n",
-            CpioOffset, DecompSize - CpioOffset));
-    *StubBuffer = DecompBuf;
-    *StubSize   = CpioOffset;
-    *InitrdData = DecompBuf + CpioOffset;
-    *InitrdSize = DecompSize - CpioOffset;
+  Status = TryXzDecompress (
+             &KernelElf[XzOffset],
+             SearchEnd - XzOffset,
+             &KernelBuf,
+             &KernelDecompSize,
+             &Stream1Consumed
+             );
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "[RouterOS] Kernel XZ decompression failed: %r\n", Status));
+    return Status;
+  }
+
+  DEBUG ((DEBUG_WARN, "[RouterOS] Kernel decompressed: %u bytes (consumed %u input bytes)\n",
+          KernelDecompSize, Stream1Consumed));
+
+  if (KernelDecompSize < 2 || KernelBuf[0] != 'M' || KernelBuf[1] != 'Z') {
+    DEBUG ((DEBUG_WARN, "[RouterOS] Not an EFI stub (0x%02x 0x%02x)\n",
+            KernelDecompSize > 0 ? KernelBuf[0] : 0,
+            KernelDecompSize > 1 ? KernelBuf[1] : 0));
+    FreePool (KernelBuf);
+    return EFI_NOT_FOUND;
+  }
+
+  //
+  // Get actual PE file size from section headers
+  //
+  if (GetPeFileSize (KernelBuf, KernelDecompSize, &KernelFileSize)) {
+    DEBUG ((DEBUG_WARN, "[RouterOS] PE file size: %u bytes (0x%x)\n",
+            KernelFileSize, KernelFileSize));
   } else {
-    DEBUG ((DEBUG_WARN, "[RouterOS] No CPIO initrd found in decompressed data\n"));
-    *StubBuffer = DecompBuf;
-    *StubSize   = DecompSize;
+    KernelFileSize = KernelDecompSize;
+    DEBUG ((DEBUG_WARN, "[RouterOS] Could not parse PE, using decompressed size\n"));
+  }
+
+  *StubBuffer = KernelBuf;
+  *StubSize   = KernelFileSize;
+
+  //
+  // Decompress stream 2 -> initrd (skip padding between streams)
+  //
+  Stream2Start = XzOffset + Stream1Consumed;
+
+  //
+  // Skip zero padding between XZ streams
+  //
+  while (Stream2Start < SearchEnd && KernelElf[Stream2Start] == 0) {
+    Stream2Start++;
+  }
+
+  if (FindXzStream (KernelElf, SearchEnd, Stream2Start, &Stream2Start)) {
+    DEBUG ((DEBUG_WARN, "[RouterOS] XZ stream 2 at ELF offset 0x%x\n", Stream2Start));
+
+    Status = TryXzDecompress (
+               &KernelElf[Stream2Start],
+               SearchEnd - Stream2Start,
+               &InitrdBuf,
+               &InitrdDecompSize,
+               NULL
+               );
+    if (!EFI_ERROR (Status) && InitrdDecompSize > 0) {
+      DEBUG ((DEBUG_WARN, "[RouterOS] Initrd decompressed: %u bytes\n", InitrdDecompSize));
+
+      if (InitrdDecompSize >= CPIO_MAGIC_SIZE &&
+          CompareMem (InitrdBuf, CPIO_MAGIC, CPIO_MAGIC_SIZE) == 0) {
+        DEBUG ((DEBUG_WARN, "[RouterOS] CPIO initrd verified\n"));
+        *InitrdData = InitrdBuf;
+        *InitrdSize = InitrdDecompSize;
+      } else {
+        DEBUG ((DEBUG_WARN, "[RouterOS] Stream 2 is not CPIO, skipping\n"));
+        FreePool (InitrdBuf);
+      }
+    } else {
+      DEBUG ((DEBUG_WARN, "[RouterOS] Initrd decompression failed, proceeding without\n"));
+    }
+  } else {
+    DEBUG ((DEBUG_WARN, "[RouterOS] No second XZ stream, proceeding without initrd\n"));
   }
 
   return EFI_SUCCESS;

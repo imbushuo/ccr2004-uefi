@@ -19,7 +19,9 @@
 [Sources]
   RouterOSLoader.c
   RouterOSLoader.h
-  NpkParser.c
+  npk_parser.c
+  npk_parser.h
+  uefi_libc.h
   KernelExtract.c
   KernelBoot.c
   XzDec/xz_config.h
@@ -33,28 +35,28 @@
 
 [Packages]
   MdePkg/MdePkg.dec
+  Platform/MikroTik/CCR2004/CCR2004.dec
 
 [LibraryClasses]
   BaseLib
   BaseMemoryLib
   DebugLib
   DevicePathLib
+  FdtLib
   MemoryAllocationLib
   PrintLib
   UefiApplicationEntryPoint
   UefiBootServicesTableLib
   UefiLib
+  ZlibLib
 
 [Protocols]
-  gEfiDevicePathProtocolGuid            ## SOMETIMES_PRODUCES
   gEfiLoadedImageProtocolGuid           ## CONSUMES
-  gEfiLoadFile2ProtocolGuid             ## SOMETIMES_PRODUCES
   gEfiSimpleFileSystemProtocolGuid      ## CONSUMES
 
 [Guids]
   gEfiFileInfoGuid                      ## CONSUMES
-  gLinuxEfiInitrdMediaGuid              ## SOMETIMES_PRODUCES
+  gFdtTableGuid                         ## SOMETIMES_CONSUMES
 
 [BuildOptions]
-  # xz-embedded uses kernel-style C that triggers some warnings
-  GCC:*_*_*_CC_FLAGS = -Wno-pointer-sign
+  GCC:*_*_*_CC_FLAGS = -Wno-pointer-sign -Wno-incompatible-pointer-types

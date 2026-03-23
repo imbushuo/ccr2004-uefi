@@ -15,6 +15,11 @@
 
 [Includes]
   Include
+  Library/ZlibLib
+
+[LibraryClasses]
+  ## @libraryclass  zlib compression/decompression for UEFI (Z_SOLO mode).
+  ZlibLib|Include/Library/ZlibLib.h
 
 [Guids]
   gCCR2004TokenSpaceGuid = { 0xa1b2c3d4, 0x5678, 0x9abc, { 0xde, 0xf0, 0x12, 0x34, 0x56, 0x78, 0x90, 0xab } }

@@ -78,29 +78,79 @@ STATIC EFI_PEI_PPI_DESCRIPTOR  mPlatformPpiTable[] = {
 
 STATIC
 VOID
+SerialPutHex32 (
+  UINT32  Val
+  )
+{
+  STATIC CONST CHAR8  Hex[] = "0123456789ABCDEF";
+  CHAR8               Buf[11];
+  UINTN               i;
+
+  Buf[0] = '0';
+  Buf[1] = 'x';
+  for (i = 0; i < 8; i++) {
+    Buf[2 + i] = Hex[(Val >> (28 - i * 4)) & 0xF];
+  }
+  Buf[10] = '\0';
+  SerialPortWrite ((UINT8 *)Buf, 10);
+}
+
+STATIC
+VOID
+DumpMuxReg (
+  CONST CHAR8  *Name,
+  UINTN        Offset
+  )
+{
+  SerialPortWrite ((UINT8 *)"  ", 2);
+  SerialPortWrite ((UINT8 *)Name, AsciiStrLen (Name));
+  SerialPortWrite ((UINT8 *)" = ", 3);
+  SerialPutHex32 (MmioRead32 (AL_PBS_BASE + Offset));
+  SerialPortWrite ((UINT8 *)"\n\r", 2);
+}
+
+STATIC
+VOID
 AlpineMuioMuxInit (
   VOID
   )
 {
   //
-  // CCR2004 pin mux from DTS pinctrl-0 allocation:
-  //   NAND_8 + NAND_CS_0       pins  6-19  FUNC_3
-  //   UART_1                    pins 20-21  FUNC_2
-  //   SGPO_DS_1                 pin  22     FUNC_4
-  //   SGPO_CLK                  pins 24-25  FUNC_4
-  //   UART_2                    pins 26-27  FUNC_2
-  //   UART_3                    pins 28-29  FUNC_2
-  //   I2C_GEN                   pins 30-31  FUNC_2
-  //   ETH_GPIO (EC)             pins 32-43  FUNC_1
-  //   RGMII_B                   pins 44-55  FUNC_1
+  // Dump current mux register values before overwriting
+  //
+  SerialPortWrite ((UINT8 *)"SEC: PBS MUX SEL before config:\n\r", 32);
+  DumpMuxReg ("mux_sel_0", PBS_MUX_SEL_0);
+  DumpMuxReg ("mux_sel_1", PBS_MUX_SEL_1);
+  DumpMuxReg ("mux_sel_2", PBS_MUX_SEL_2);
+  DumpMuxReg ("mux_sel_3", PBS_MUX_SEL_3);
+  DumpMuxReg ("mux_sel_4", PBS_MUX_SEL_4);
+  DumpMuxReg ("mux_sel_5", PBS_MUX_SEL_5);
+  DumpMuxReg ("mux_sel_6", PBS_MUX_SEL_6);
+
+  //
+  // RouterBoot configures only the minimum pin mux for NAND boot:
+  //
+  //   mux_sel_0 = 0x33000000   pins  6- 7: NAND DATA[0:1]          FUNC_3
+  //   mux_sel_1 = 0x33333333   pins  8-15: NAND DATA[2:7]+CLE+ALE  FUNC_3
+  //   mux_sel_2 = 0x00223333   pins 16-19: NAND RE_N/WE_N/RB_N/CS0 FUNC_3
+  //                            pins 20-21: UART_1 (console)        FUNC_2
+  //   mux_sel_3 = 0x22000000   pins 30-31: I2C_GEN (fan/sensors)   FUNC_2
+  //   mux_sel_4 = 0x00000000   (all GPIO — not configured)
+  //   mux_sel_5 = 0x00000000   (all GPIO — not configured)
+  //   mux_sel_6 = 0x00000000   (all GPIO — not configured)
+  //
+  // We replicate the same values here.  The RGMII_B and ETH_GPIO pins
+  // (mux_sel_4/5/6) are left as GPIO because the ethernet driver handles
+  // PHY reset via the GPIO protocol, and the RGMII interface is brought
+  // up by the Alpine HAL ethernet init sequence itself.
   //
   MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_0, 0x33000000);
   MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_1, 0x33333333);
-  MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_2, 0x04223333);
-  MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_3, 0x22222244);
-  MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_4, 0x11111111);
-  MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_5, 0x11111111);
-  MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_6, 0x11111111);
+  MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_2, 0x00223333);
+  MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_3, 0x22000000);
+  MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_4, 0x00000000);
+  MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_5, 0x00000000);
+  MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_6, 0x00000000);
 }
 
 // =====================================================================

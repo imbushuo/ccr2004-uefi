@@ -1341,15 +1341,15 @@ EthPhyReset (
   }
 
   //
-  // Assert reset: drive GPIO40 low
+  // Assert reset: drive GPIO40 high
   //
-  Gpio->Set (Gpio, ETH_PHY_RESET_GPIO, GPIO_MODE_OUTPUT_0);
+  Gpio->Set (Gpio, ETH_PHY_RESET_GPIO, GPIO_MODE_OUTPUT_1);
   gBS->Stall (100000);  // 100 ms
 
   //
-  // Deassert reset: drive GPIO40 high
+  // Deassert reset: drive GPIO40 low
   //
-  Gpio->Set (Gpio, ETH_PHY_RESET_GPIO, GPIO_MODE_OUTPUT_1);
+  Gpio->Set (Gpio, ETH_PHY_RESET_GPIO, GPIO_MODE_OUTPUT_0);
   gBS->Stall (100000);  // 100 ms
 
   DEBUG ((DEBUG_INFO, "AlEthNext: PHY reset via GPIO40 complete\n"));

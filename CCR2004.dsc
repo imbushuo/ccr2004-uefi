@@ -22,7 +22,7 @@
   SKUID_IDENTIFIER               = DEFAULT
   FLASH_DEFINITION               = Platform/MikroTik/CCR2004/CCR2004.fdf
   PREBUILD                       = bash Platform/MikroTik/CCR2004/build_dtb.sh
-  POSTBUILD                      = bash Platform/MikroTik/CCR2004/fd2elf.sh
+  POSTBUILD                      = bash Platform/MikroTik/CCR2004/postbuild.sh
 
   # Network stack feature flags
   DEFINE NETWORK_TLS_ENABLE             = TRUE

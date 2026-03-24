@@ -1,0 +1,31 @@
+## @file
+#  Jitter-based ArmTrngLib — generates entropy from ARM timer jitter.
+#
+#  For SoCs without a hardware TRNG block.  Collects timing variance
+#  from CNTPCT_EL0 during memory/ALU workloads as an entropy source.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION    = 0x0001001b
+  BASE_NAME      = JitterArmTrngLib
+  FILE_GUID      = 8c6e2f4a-d3b7-49e1-a520-6f8d3c1e7b94
+  MODULE_TYPE    = BASE
+  VERSION_STRING = 1.0
+  LIBRARY_CLASS  = ArmTrngLib
+
+[Sources]
+  JitterArmTrngLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ArmPkg/ArmPkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  TimerLib

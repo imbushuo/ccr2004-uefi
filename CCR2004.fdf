@@ -123,7 +123,7 @@ WRITE_STATUS       = TRUE
   INF Platform/MikroTik/CCR2004/Drivers/MtYaffs2Dxe/MtYaffs2Dxe.inf
 
   # Device Tree
-  INF EmbeddedPkg/Drivers/DtPlatformDxe/DtPlatformDxe.inf
+  INF Platform/MikroTik/CCR2004/Drivers/DtPatchDxe/DtPatchDxe.inf
   FILE FREEFORM = 25462CDA-221F-47DF-AC1D-259CFAA4E326 {
     SECTION RAW = Platform/MikroTik/CCR2004/Resources/DeviceTree/CCR2004-1G-2XS-PCIe.dtb
   }
@@ -161,6 +161,9 @@ WRITE_STATUS       = TRUE
   INF Platform/MikroTik/CCR2004/Application/NandProbeApp/NandProbeApp.inf
   INF Platform/MikroTik/CCR2004/Application/DumpBlockApp/DumpBlockApp.inf
   INF Platform/MikroTik/CCR2004/Application/TftpPutApp/TftpPutApp.inf
+
+  # SPI flash update utility
+  INF Platform/MikroTik/CCR2004/Application/FlashApp/FlashApp.inf
 
   # RouterOS Kernel Loader
   INF Platform/MikroTik/CCR2004/Application/RouterOSLoader/RouterOSLoader.inf

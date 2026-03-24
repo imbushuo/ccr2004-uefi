@@ -31,7 +31,10 @@
 [LibraryClasses]
   ArmLib
   DebugLib
+  IoLib
   MemoryAllocationLib
+  SerialPortLib
+  TimerLib
 
 [Ppis]
   gArmMpCoreInfoPpiGuid

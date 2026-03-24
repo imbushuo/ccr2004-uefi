@@ -9,6 +9,7 @@
 **/
 
 #include "AlEthNextDxe.h"
+#include <Protocol/EmbeddedGpio.h>
 
 STATIC EFI_CPU_ARCH_PROTOCOL  *mCpu = NULL;
 
@@ -1316,6 +1317,44 @@ AlEthNextStop (
 
 /* ---------- Entry Point ---------- */
 
+/**
+  Reset the RGMII PHY via GPIO40 (active-low reset line).
+
+  Uses the EmbeddedGpio protocol (PL061 driver, gpio5 controller).
+  GPIO40 = baseidx 0x28 + bit 0 in the PlatformGpioDxe table.
+**/
+#define ETH_PHY_RESET_GPIO  40
+
+STATIC
+VOID
+EthPhyReset (
+  VOID
+  )
+{
+  EFI_STATUS     Status;
+  EMBEDDED_GPIO  *Gpio;
+
+  Status = gBS->LocateProtocol (&gEmbeddedGpioProtocolGuid, NULL, (VOID **)&Gpio);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "AlEthNext: GPIO protocol not found, skipping PHY reset\n"));
+    return;
+  }
+
+  //
+  // Assert reset: drive GPIO40 low
+  //
+  Gpio->Set (Gpio, ETH_PHY_RESET_GPIO, GPIO_MODE_OUTPUT_0);
+  gBS->Stall (100000);  // 100 ms
+
+  //
+  // Deassert reset: drive GPIO40 high
+  //
+  Gpio->Set (Gpio, ETH_PHY_RESET_GPIO, GPIO_MODE_OUTPUT_1);
+  gBS->Stall (100000);  // 100 ms
+
+  DEBUG ((DEBUG_INFO, "AlEthNext: PHY reset via GPIO40 complete\n"));
+}
+
 EFI_STATUS
 EFIAPI
 AlEthNextDxeEntryPoint (
@@ -1326,6 +1365,8 @@ AlEthNextDxeEntryPoint (
   EFI_STATUS  Status;
 
   DEBUG ((DEBUG_INFO, "AlEthNext: Driver loaded (HAL-based Alpine Ethernet)\n"));
+
+  EthPhyReset ();
 
   /* Locate CPU Architecture Protocol (for SetMemoryAttributes) */
   Status = gBS->LocateProtocol (&gEfiCpuArchProtocolGuid, NULL, (VOID **)&mCpu);

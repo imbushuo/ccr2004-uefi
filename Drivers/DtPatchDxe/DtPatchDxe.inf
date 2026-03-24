@@ -1,0 +1,45 @@
+## @file
+#  Device Tree loader with board MAC address patching.
+#
+#  Replaces upstream DtPlatformDxe.  Loads DTB, patches the root
+#  mac-address property from BoardInfo, installs FDT config table.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION    = 0x0001001b
+  BASE_NAME      = DtPatchDxe
+  FILE_GUID      = d4e7b2a1-3f8c-4a59-b610-2c9d5e7f1a83
+  MODULE_TYPE    = DXE_DRIVER
+  VERSION_STRING = 1.0
+  ENTRY_POINT    = DtPatchDxeEntryPoint
+
+[Sources]
+  DtPatchDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  EmbeddedPkg/EmbeddedPkg.dec
+  Platform/MikroTik/CCR2004/CCR2004.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  DebugLib
+  DtPlatformDtbLoaderLib
+  FdtLib
+  MemoryAllocationLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Guids]
+  gFdtTableGuid                         ## PRODUCES
+
+[Protocols]
+  gMikroTikBoardInfoProtocolGuid        ## CONSUMES
+
+[Depex]
+  gMikroTikBoardInfoProtocolGuid

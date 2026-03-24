@@ -24,6 +24,7 @@
 
 [Packages]
   MdePkg/MdePkg.dec
+  EmbeddedPkg/EmbeddedPkg.dec
   NetworkPkg/NetworkPkg.dec
   Platform/MikroTik/CCR2004/CCR2004.dec
 
@@ -48,9 +49,11 @@
   gEfiDevicePathProtocolGuid               ## BY_START
   gEfiPciIoProtocolGuid                    ## TO_START
   gMikroTikBoardInfoProtocolGuid           ## CONSUMES
+  gEmbeddedGpioProtocolGuid                ## CONSUMES
 
 [Depex]
-  gMikroTikBoardInfoProtocolGuid
+  gMikroTikBoardInfoProtocolGuid AND
+  gEmbeddedGpioProtocolGuid
 
 [BuildOptions]
   GCC:*_*_AARCH64_CC_FLAGS = -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/common -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/eth -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/udma -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/iofic -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/io_fabric -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/eth -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/udma -include al_hal_plat_types.h -include al_hal_plat_services.h

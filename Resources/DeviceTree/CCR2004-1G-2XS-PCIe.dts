@@ -8,7 +8,7 @@
 	compatible = "annapurna-labs,alpine2";
 	clock-ranges;
 	version = "1.1";
-	model = "Annapurna Labs Alpine V2 EVP";
+	model = "MikroTik CCR2004-1G-2XS-PCIe";
 	mac-address = [00 01 02 03 04 05];
 
 	aliases {

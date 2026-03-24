@@ -1,0 +1,41 @@
+## @file
+#  FlashApp — writes a UEFI ELF image to SPI NOR flash.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION    = 0x0001001b
+  BASE_NAME      = FlashApp
+  FILE_GUID      = 5e2a9c3b-f471-4d86-b0a2-3c7e8d1f5a69
+  MODULE_TYPE    = UEFI_APPLICATION
+  VERSION_STRING = 1.0
+  ENTRY_POINT    = FlashAppEntry
+
+[Sources]
+  FlashApp.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  ShellPkg/ShellPkg.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  DebugLib
+  MemoryAllocationLib
+  UefiApplicationEntryPoint
+  UefiBootServicesTableLib
+  UefiLib
+
+[Protocols]
+  gEfiLoadedImageProtocolGuid          ## CONSUMES
+  gEfiShellParametersProtocolGuid      ## CONSUMES
+  gEfiSimpleFileSystemProtocolGuid     ## CONSUMES
+
+[Guids]
+  gEfiFileInfoGuid                     ## CONSUMES
+  gEdk2JedecSfdpSpiDxeDriverGuid      ## CONSUMES

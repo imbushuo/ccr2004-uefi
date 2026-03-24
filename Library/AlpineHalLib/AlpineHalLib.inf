@@ -45,6 +45,9 @@
   # NAND driver (PIO only)
   drivers/pbs/al_hal_nand.c
 
+  # MUIO pin mux driver
+  drivers/pbs/al_hal_muio_mux.c
+
 [Packages]
   MdePkg/MdePkg.dec
 

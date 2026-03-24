@@ -14,7 +14,7 @@
 [Defines]
   PLATFORM_NAME                  = CCR2004
   PLATFORM_GUID                  = b3a4c5d6-7890-1234-abcd-ef5678901234
-  PLATFORM_VERSION               = 2026.323.1254
+  PLATFORM_VERSION               = 2026.324.203
   DSC_SPECIFICATION              = 0x00010005
   OUTPUT_DIRECTORY               = Build/CCR2004
   SUPPORTED_ARCHITECTURES        = AARCH64
@@ -254,7 +254,7 @@
   gEfiMdePkgTokenSpaceGuid.PcdDebugPrintErrorLevel|0x80000002
 
   # Firmware version string
-  gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString|L"CCR2004 2026.323.1254"
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareVersionString|L"CCR2004 2026.324.203"
 
   # Emulated variable store (RAM-backed, no flash)
   # Sizes increased for TLS CA certificate storage
@@ -453,7 +453,7 @@
   #
   # Device Tree
   #
-  EmbeddedPkg/Drivers/DtPlatformDxe/DtPlatformDxe.inf
+  Platform/MikroTik/CCR2004/Drivers/DtPatchDxe/DtPatchDxe.inf
 
   #
   # Shell applications
@@ -463,6 +463,7 @@
   Platform/MikroTik/CCR2004/Application/NandProbeApp/NandProbeApp.inf
   Platform/MikroTik/CCR2004/Application/DumpBlockApp/DumpBlockApp.inf
   Platform/MikroTik/CCR2004/Application/TftpPutApp/TftpPutApp.inf
+  Platform/MikroTik/CCR2004/Application/FlashApp/FlashApp.inf
 
   #
   # RouterOS Kernel Loader (boot option, not auto-booted)

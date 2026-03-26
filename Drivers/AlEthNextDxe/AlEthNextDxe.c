@@ -93,13 +93,13 @@ AlEthPhyInit (
       "R12", "MMD_CTRL", "MMD_DATA", "EXSR",    // 12-15
     };
 
-    DEBUG ((DEBUG_WARN, "AlEthNext: PHY register dump (addr=%u) before init:\n", Ctx->PhyAddr));
+    DEBUG ((DEBUG_INFO, "AlEthNext: PHY register dump (addr=%u) before init:\n", Ctx->PhyAddr));
     for (Reg = 0; Reg < 16; Reg++) {
       Err = al_eth_mdio_read (&Ctx->HalAdapter, Ctx->PhyAddr, 0, Reg, &Val);
       if (Err) {
-        DEBUG ((DEBUG_WARN, "  [%2u] %-8a = READ ERROR\n", Reg, RegNames[Reg]));
+        DEBUG ((DEBUG_INFO, "  [%2u] %-8a = READ ERROR\n", Reg, RegNames[Reg]));
       } else {
-        DEBUG ((DEBUG_WARN, "  [%2u] %-8a = 0x%04x\n", Reg, RegNames[Reg], Val));
+        DEBUG ((DEBUG_INFO, "  [%2u] %-8a = 0x%04x\n", Reg, RegNames[Reg], Val));
       }
     }
 
@@ -107,7 +107,7 @@ AlEthPhyInit (
     for (Reg = 16; Reg < 32; Reg++) {
       Err = al_eth_mdio_read (&Ctx->HalAdapter, Ctx->PhyAddr, 0, Reg, &Val);
       if (!Err && Val != 0x0000 && Val != 0xFFFF) {
-        DEBUG ((DEBUG_WARN, "  [%2u]          = 0x%04x\n", Reg, Val));
+        DEBUG ((DEBUG_INFO, "  [%2u]          = 0x%04x\n", Reg, Val));
       }
     }
 
@@ -129,11 +129,11 @@ AlEthPhyInit (
       };
       UINTN  d;
 
-      DEBUG ((DEBUG_WARN, "  AR8035 debug registers:\n"));
+      DEBUG ((DEBUG_INFO, "  AR8035 debug registers:\n"));
       for (d = 0; d < ARRAY_SIZE (DbgRegs); d++) {
         al_eth_mdio_write (&Ctx->HalAdapter, Ctx->PhyAddr, 0, 0x1D, DbgRegs[d].Addr);
         al_eth_mdio_read  (&Ctx->HalAdapter, Ctx->PhyAddr, 0, 0x1E, &Val);
-        DEBUG ((DEBUG_WARN, "    dbg[0x%02x] %-8a = 0x%04x\n", DbgRegs[d].Addr, DbgRegs[d].Name, Val));
+        DEBUG ((DEBUG_INFO, "    dbg[0x%02x] %-8a = 0x%04x\n", DbgRegs[d].Addr, DbgRegs[d].Name, Val));
       }
     }
   }

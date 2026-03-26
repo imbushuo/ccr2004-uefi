@@ -53,6 +53,10 @@ CFLAGS=(
   -mcpu=cortex-a72
   -mgeneral-regs-only
   -I"${SRC_DIR}"
+  -I"${SRC_DIR}/hal"
+  -include al_hal_plat_types.h
+  -include al_hal_plat_services.h
+  -Wno-unused-parameter
 )
 
 SFLAGS=(
@@ -78,6 +82,8 @@ SOURCES_C=(
   Support.c
   SpiFlash.c
   ElfLoader.c
+  hal/al_hal_spi.c
+  hal/al_hal_pbs_stubs.c
 )
 
 SOURCES_S=(
@@ -87,7 +93,8 @@ SOURCES_S=(
 OBJECTS=()
 
 for SRC in "${SOURCES_C[@]}"; do
-  OBJ="${OUT_DIR}/${SRC%.c}.o"
+  OBJ_NAME="$(basename "${SRC}" .c).o"
+  OBJ="${OUT_DIR}/${OBJ_NAME}"
   "${CC}" "${CFLAGS[@]}" -o "${OBJ}" "${SRC_DIR}/${SRC}"
   OBJECTS+=("${OBJ}")
 done

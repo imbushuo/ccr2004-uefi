@@ -11,6 +11,8 @@
 
 #include "RouterOSLoader.h"
 #include "npk_parser.h"
+#include <Library/UefiRuntimeServicesTableLib.h>
+#include <Protocol/ShellParameters.h>
 
 //
 // Path to the RouterOS system image within the YAFFS2 filesystem
@@ -168,6 +170,37 @@ RouterOSLoaderEntry (
   UINTN           InitrdSize;
 
   DEBUG ((DEBUG_WARN, "[RouterOS] RouterOS Kernel Loader starting\n"));
+
+  //
+  // Check for -RouterBoot parameter: write magic and warm reset
+  //
+  {
+    EFI_SHELL_PARAMETERS_PROTOCOL  *ShellParams;
+
+    Status = gBS->HandleProtocol (
+                    ImageHandle,
+                    &gEfiShellParametersProtocolGuid,
+                    (VOID **)&ShellParams
+                    );
+    if (!EFI_ERROR (Status)) {
+      UINTN  Idx;
+
+      for (Idx = 1; Idx < ShellParams->Argc; Idx++) {
+        if (StrCmp (ShellParams->Argv[Idx], L"-RouterBoot") == 0) {
+          volatile UINT32  *Magic = (volatile UINT32 *)(UINTN)0x20102000;
+
+          DEBUG ((DEBUG_WARN, "[RouterOS] -RouterBoot: writing magic 0xFDFFB001 to 0x20102000\n"));
+          *Magic = 0xFDFFB001U;
+
+          DEBUG ((DEBUG_WARN, "[RouterOS] Warm resetting...\n"));
+          gRT->ResetSystem (EfiResetWarm, EFI_SUCCESS, 0, NULL);
+
+          /* Should not return */
+          CpuDeadLoop ();
+        }
+      }
+    }
+  }
 
   //
   // Step 1: Find and read the NPK system image

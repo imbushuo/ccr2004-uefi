@@ -48,10 +48,12 @@
   UefiApplicationEntryPoint
   UefiBootServicesTableLib
   UefiLib
+  UefiRuntimeServicesTableLib
   ZlibLib
 
 [Protocols]
   gEfiLoadedImageProtocolGuid           ## CONSUMES
+  gEfiShellParametersProtocolGuid       ## SOMETIMES_CONSUMES
   gEfiSimpleFileSystemProtocolGuid      ## CONSUMES
 
 [Guids]

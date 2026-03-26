@@ -1,0 +1,42 @@
+## @file
+#  RouterBootApp — chainloads MikroTik RouterBoot from firmware volume.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION    = 0x0001001b
+  BASE_NAME      = RouterBootApp
+  FILE_GUID      = a2c4e6b8-d1f3-4597-8a0c-3e5d7f9b1c24
+  MODULE_TYPE    = UEFI_APPLICATION
+  VERSION_STRING = 1.0
+  ENTRY_POINT    = RouterBootAppEntry
+
+[Sources]
+  RouterBootApp.c
+
+[Sources.AArch64]
+  Trampoline.S
+
+[Packages]
+  MdePkg/MdePkg.dec
+  ArmPkg/ArmPkg.dec
+
+[LibraryClasses]
+  ArmLib
+  BaseMemoryLib
+  CacheMaintenanceLib
+  DebugLib
+  MemoryAllocationLib
+  UefiApplicationEntryPoint
+  UefiBootServicesTableLib
+  UefiLib
+
+[Protocols]
+  gEfiFirmwareVolume2ProtocolGuid      ## CONSUMES
+
+[Guids]
+  gFdtTableGuid                        ## CONSUMES

@@ -17,12 +17,12 @@
 
 [FD.CCR2004]
 BaseAddress   = 0x01100000|gArmTokenSpaceGuid.PcdFdBaseAddress
-Size          = 0x00300000|gArmTokenSpaceGuid.PcdFdSize
+Size          = 0x00380000|gArmTokenSpaceGuid.PcdFdSize
 ErasePolarity = 1
 BlockSize     = 0x00001000
-NumBlocks     = 0x300
+NumBlocks     = 0x380
 
-0x00000000|0x00300000
+0x00000000|0x00380000
 gArmTokenSpaceGuid.PcdFvBaseAddress|gArmTokenSpaceGuid.PcdFvSize
 FV = FVMAIN_COMPACT
 
@@ -162,6 +162,12 @@ WRITE_STATUS       = TRUE
 
   # SPI flash update utility
   INF Platform/MikroTik/CCR2004/Application/FlashApp/FlashApp.inf
+
+  # RouterBoot chainloader + binary
+  INF Platform/MikroTik/CCR2004/Application/RouterBootApp/RouterBootApp.inf
+  FILE FREEFORM = 7D3A1B2E-C5F8-4A69-B012-4E8C6D1F3A95 {
+    SECTION RAW = Platform/MikroTik/CCR2004/Resources/RouterBoot/routerboot-7.12.bin
+  }
 
   # RouterOS Kernel Loader
   INF Platform/MikroTik/CCR2004/Application/RouterOSLoader/RouterOSLoader.inf

@@ -466,6 +466,7 @@
   #
   # RouterOS Kernel Loader (boot option, not auto-booted)
   #
+  Platform/MikroTik/CCR2004/Application/RouterBootApp/RouterBootApp.inf
   Platform/MikroTik/CCR2004/Application/RouterOSLoader/RouterOSLoader.inf
 
   #

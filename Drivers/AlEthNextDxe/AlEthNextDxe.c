@@ -10,6 +10,7 @@
 
 #include "AlEthNextDxe.h"
 #include <Protocol/EmbeddedGpio.h>
+#include "al_hal_pll.h"
 
 STATIC EFI_CPU_ARCH_PROTOCOL  *mCpu = NULL;
 
@@ -79,6 +80,82 @@ AlEthPhyInit (
   if (Ctx->PhyAddr == 0xFF) {
     DEBUG ((DEBUG_INFO, "AlEthNext: No PHY found on MDIO bus\n"));
     return EFI_NOT_FOUND;
+  }
+
+  /* Dump PHY registers before any modification */
+  {
+    UINT16  Val;
+    UINT32  Reg;
+    STATIC CONST CHAR8 *RegNames[] = {
+      "BMCR", "BMSR", "PHYID1", "PHYID2",     // 0-3
+      "ANAR", "ANLPAR", "ANER", "ANNPTR",       // 4-7
+      "ANNPRR", "GBCR", "GBSR", "R11",          // 8-11
+      "R12", "MMD_CTRL", "MMD_DATA", "EXSR",    // 12-15
+    };
+
+    DEBUG ((DEBUG_WARN, "AlEthNext: PHY register dump (addr=%u) before init:\n", Ctx->PhyAddr));
+    for (Reg = 0; Reg < 16; Reg++) {
+      Err = al_eth_mdio_read (&Ctx->HalAdapter, Ctx->PhyAddr, 0, Reg, &Val);
+      if (Err) {
+        DEBUG ((DEBUG_WARN, "  [%2u] %-8a = READ ERROR\n", Reg, RegNames[Reg]));
+      } else {
+        DEBUG ((DEBUG_WARN, "  [%2u] %-8a = 0x%04x\n", Reg, RegNames[Reg], Val));
+      }
+    }
+
+    /* Also dump AR8035-specific registers if accessible */
+    for (Reg = 16; Reg < 32; Reg++) {
+      Err = al_eth_mdio_read (&Ctx->HalAdapter, Ctx->PhyAddr, 0, Reg, &Val);
+      if (!Err && Val != 0x0000 && Val != 0xFFFF) {
+        DEBUG ((DEBUG_WARN, "  [%2u]          = 0x%04x\n", Reg, Val));
+      }
+    }
+
+    /*
+     * Dump AR8035 debug registers via indirect access:
+     *   Write debug address to reg 0x1D, read data from reg 0x1E.
+     *   Key debug regs:
+     *     0x00 = RX clock delay (bit 15 = RGMII RX delay enable)
+     *     0x05 = TX clock delay (bit 8 = RGMII TX delay enable)
+     *     0x0B = Hibernate control
+     *     0x1F = Chip config (RGMII/SGMII mode, etc.)
+     */
+    {
+      STATIC CONST struct { UINT16 Addr; CONST CHAR8 *Name; } DbgRegs[] = {
+        { 0x00, "RxClkDly" },
+        { 0x05, "TxClkDly" },
+        { 0x0B, "Hibernate" },
+        { 0x1F, "ChipCfg"  },
+      };
+      UINTN  d;
+
+      DEBUG ((DEBUG_WARN, "  AR8035 debug registers:\n"));
+      for (d = 0; d < ARRAY_SIZE (DbgRegs); d++) {
+        al_eth_mdio_write (&Ctx->HalAdapter, Ctx->PhyAddr, 0, 0x1D, DbgRegs[d].Addr);
+        al_eth_mdio_read  (&Ctx->HalAdapter, Ctx->PhyAddr, 0, 0x1E, &Val);
+        DEBUG ((DEBUG_WARN, "    dbg[0x%02x] %-8a = 0x%04x\n", DbgRegs[d].Addr, DbgRegs[d].Name, Val));
+      }
+    }
+  }
+
+  /*
+   * AR8035 RGMII TX clock delay configuration.
+   *
+   * Confirmed from RouterBoot disassembly: only the TX clock delay is
+   * enabled (debug reg 0x05 bit 8).  RX delay is NOT set.
+   *
+   * Access: write debug address to reg 0x1D, read-modify-write via reg 0x1E.
+   */
+  {
+    UINT16  DbgVal;
+
+    /* Enable RGMII TX clock delay (debug reg 0x05, set bit 8) */
+    al_eth_mdio_write (&Ctx->HalAdapter, Ctx->PhyAddr, 0, 0x1D, 0x0005);
+    al_eth_mdio_read  (&Ctx->HalAdapter, Ctx->PhyAddr, 0, 0x1E, &DbgVal);
+    DbgVal |= BIT8;
+    al_eth_mdio_write (&Ctx->HalAdapter, Ctx->PhyAddr, 0, 0x1E, DbgVal);
+
+    DEBUG ((DEBUG_INFO, "AlEthNext: AR8035 RGMII TX clock delay enabled\n"));
   }
 
   /* Software reset */
@@ -1353,6 +1430,92 @@ EthPhyReset (
   gBS->Stall (100000);  // 100 ms
 
   DEBUG ((DEBUG_INFO, "AlEthNext: PHY reset via GPIO40 complete\n"));
+}
+
+/**
+  Initialize SB PLL to set Ethernet RGMII reference clock to 25 MHz.
+
+  Replicates the U-Boot pll_sb_init() sequence from board_cfg.h:
+    Channel 9 (ETH0_REF_CLK_OUT) = 25 MHz
+    Channel 10 (ETH1_REF_CLK_OUT) = 25 MHz (not used on CCR2004 but set for completeness)
+
+  PLL base: AL_SB_RING_BASE + 0xB00 = 0xFD860B00
+  Reference clock: 100 MHz (from bootstrap)
+**/
+#define AL_SB_PLL_BASE              0xFD860B00ULL
+#define PLL_SB_CHAN_IDX_ETH0_REF    9
+#define PLL_SB_CHAN_IDX_ETH1_REF    10
+
+STATIC
+VOID
+EthSbPllInit (
+  VOID
+  )
+{
+  struct al_pll_obj  Pll;
+  enum al_pll_freq   PllFreqEnum;
+  unsigned int       PllFreqKhz;
+  int                Err;
+
+  Err = al_pll_init (
+          (void *)AL_SB_PLL_BASE,
+          "SB PLL",
+          AL_PLL_REF_CLK_FREQ_100_MHZ,
+          &Pll
+          );
+  if (Err) {
+    DEBUG ((DEBUG_WARN, "AlEthNext: al_pll_init failed: %d\n", Err));
+    return;
+  }
+
+  Err = al_pll_freq_get (&Pll, &PllFreqEnum, &PllFreqKhz);
+  if (Err) {
+    DEBUG ((DEBUG_WARN, "AlEthNext: al_pll_freq_get failed: %d\n", Err));
+    return;
+  }
+
+  DEBUG ((DEBUG_INFO, "AlEthNext: SB PLL frequency: %u KHz\n", PllFreqKhz));
+
+  if (PllFreqKhz % 25000) {
+    DEBUG ((DEBUG_WARN, "AlEthNext: PLL freq %u KHz not divisible by 25 MHz\n", PllFreqKhz));
+    return;
+  }
+
+  //
+  // Set ETH0 RGMII ref clock to 25 MHz (channel 9)
+  //
+  Err = al_pll_channel_div_set (
+          &Pll,
+          PLL_SB_CHAN_IDX_ETH0_REF,
+          PllFreqKhz / 25000,
+          AL_FALSE,  // divider_mul_half
+          0,         // no reset
+          0,         // don't apply yet
+          0          // no timeout
+          );
+  if (Err) {
+    DEBUG ((DEBUG_WARN, "AlEthNext: PLL ch9 set failed: %d\n", Err));
+    return;
+  }
+
+  //
+  // Set ETH1 RGMII ref clock to 25 MHz (channel 10) — apply + 1ms settle
+  //
+  Err = al_pll_channel_div_set (
+          &Pll,
+          PLL_SB_CHAN_IDX_ETH1_REF,
+          PllFreqKhz / 25000,
+          AL_FALSE,  // divider_mul_half
+          0,         // no reset
+          1,         // apply now
+          1000       // 1ms timeout
+          );
+  if (Err) {
+    DEBUG ((DEBUG_WARN, "AlEthNext: PLL ch10 set failed: %d\n", Err));
+    return;
+  }
+
+  DEBUG ((DEBUG_INFO, "AlEthNext: SB PLL ETH ref clocks set to 25 MHz\n"));
 }
 
 EFI_STATUS

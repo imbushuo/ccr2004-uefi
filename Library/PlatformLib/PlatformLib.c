@@ -139,18 +139,13 @@ AlpineMuioMuxInit (
   //   mux_sel_5 = 0x00000000   (all GPIO — not configured)
   //   mux_sel_6 = 0x00000000   (all GPIO — not configured)
   //
-  // We replicate the same values here.  The RGMII_B and ETH_GPIO pins
-  // (mux_sel_4/5/6) are left as GPIO because the ethernet driver handles
-  // PHY reset via the GPIO protocol, and the RGMII interface is brought
-  // up by the Alpine HAL ethernet init sequence itself.
-  //
   MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_0, 0x33000000);
   MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_1, 0x33333333);
   MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_2, 0x00223333);
   MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_3, 0x22000000);
-  MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_4, 0x00000000);
-  MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_5, 0x00000000);
-  MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_6, 0x00000000);
+  MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_4, 0x0);
+  MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_5, 0x0);
+  MmioWrite32 (AL_PBS_BASE + PBS_MUX_SEL_6, 0x0);
 }
 
 // =====================================================================

@@ -662,7 +662,57 @@ DwSpiTransaction (
   }
 
   //
-  // Set slave select
+  // For write-only (TMOD_TO): use SSI_OVR to control CS timing.
+  // Pre-fill FIFO before asserting CS to prevent premature CS deassert
+  // if the FIFO drains between software-paced byte pushes.
+  //
+  if (Tmod == DW_SPI_TMOD_TO) {
+    DwSpiWrite (Ctx, DW_SPI_SER, 0);
+    DwSpiWrite (Ctx, DW_SPI_SSI_OVR, DW_SPI_SSI_OVR_CS_ALL);
+    DwSpiEnable (Ctx, 1);
+
+    //
+    // Pre-fill TX FIFO (up to FIFO depth) before asserting CS
+    //
+    for (Written = 0; Written < WriteBytes && Written < Ctx->FifoLen; Written++) {
+      DwSpiWrite (Ctx, DW_SPI_DR, (UINT16)WriteBuffer[Written]);
+    }
+
+    //
+    // Assert CS — clocking begins with FIFO already primed
+    //
+    DwSpiWrite (Ctx, DW_SPI_SER, (UINT16)(BIT0 << Ctx->ActiveCs));
+
+    //
+    // Push remaining bytes
+    //
+    for (; Written < WriteBytes; Written++) {
+      while ((DwSpiRead (Ctx, DW_SPI_SR) & DW_SPI_SR_TFNF) == 0) {
+        MicroSecondDelay (DW_SPI_POLL_INTERVAL_US);
+      }
+      DwSpiWrite (Ctx, DW_SPI_DR, (UINT16)WriteBuffer[Written]);
+    }
+
+    //
+    // Wait for TX FIFO empty and not busy
+    //
+    while ((DwSpiRead (Ctx, DW_SPI_SR) & DW_SPI_SR_TFE) == 0) {
+      MicroSecondDelay (DW_SPI_POLL_INTERVAL_US);
+    }
+    Status = DwSpiPollBusy (Ctx);
+
+    //
+    // Deassert CS, clear override
+    //
+    DwSpiWrite (Ctx, DW_SPI_SER, 0);
+    DwSpiWrite (Ctx, DW_SPI_SSI_OVR, 0);
+    DwSpiEnable (Ctx, 0);
+    DwSpiRead (Ctx, DW_SPI_ICR);
+    goto Done;
+  }
+
+  //
+  // For non-TMOD_TO: original CS handling
   //
   DwSpiWrite (Ctx, DW_SPI_SER, (UINT16)(BIT0 << Ctx->ActiveCs));
 
@@ -677,27 +727,9 @@ DwSpiTransaction (
   switch (Tmod) {
     case DW_SPI_TMOD_TO:
       //
-      // Write Only
+      // (handled above — should not reach here)
       //
-      for (Written = 0; Written < WriteBytes; Written++) {
-        //
-        // Wait for TX FIFO not full
-        //
-        while ((DwSpiRead (Ctx, DW_SPI_SR) & DW_SPI_SR_TFNF) == 0) {
-          MicroSecondDelay (DW_SPI_POLL_INTERVAL_US);
-        }
-
-        DwSpiWrite (Ctx, DW_SPI_DR, (UINT16)WriteBuffer[Written]);
-      }
-
-      //
-      // Wait for TX FIFO empty and not busy
-      //
-      while ((DwSpiRead (Ctx, DW_SPI_SR) & DW_SPI_SR_TFE) == 0) {
-        MicroSecondDelay (DW_SPI_POLL_INTERVAL_US);
-      }
-
-      Status = DwSpiPollBusy (Ctx);
+      Status = EFI_DEVICE_ERROR;
       break;
 
     case DW_SPI_TMOD_RO:
@@ -761,6 +793,7 @@ DwSpiTransaction (
   //
   DwSpiRead (Ctx, DW_SPI_ICR);
 
+Done:
 Exit:
   EfiReleaseLock (&Ctx->Lock);
   return Status;

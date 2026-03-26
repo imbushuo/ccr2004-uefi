@@ -1,12 +1,8 @@
 ## @file
 #  SPI NOR Flash driver for Winbond W25Q128JWS on MikroTik CCR2004.
 #
-#  Produces EFI_SPI_NOR_FLASH_PROTOCOL using standard SPI NOR commands
-#  over the EFI_SPI_IO_PROTOCOL provided by SpiBusDxe.
-#  Flash geometry: 16MB, 4KB sectors, 256B pages, 3-byte addressing.
-#  Write-protected by default (no writes unless explicitly requested).
-#
-#  Modeled after Silicon/Marvell/Drivers/Spi/MvSpiFlashDxe.
+#  Uses Alpine HAL SPI driver directly — no EFI SPI bus stack needed.
+#  Produces EFI_SPI_NOR_FLASH_PROTOCOL.
 #
 #  Copyright (c) 2024, MikroTik. All rights reserved.
 #
@@ -15,37 +11,35 @@
 ##
 
 [Defines]
-  INF_VERSION                    = 0x0001001b
-  BASE_NAME                      = SpiNorFlashDxe
-  FILE_GUID                      = e4a7c2b1-3d58-4f09-8b6e-1c9d5a7f2e30
-  MODULE_TYPE                    = DXE_DRIVER
-  VERSION_STRING                 = 1.0
-  ENTRY_POINT                    = SpiNorFlashDxeEntry
+  INF_VERSION    = 0x0001001b
+  BASE_NAME      = SpiNorFlashDxe
+  FILE_GUID      = e4a7c2b1-3d58-4f09-8b6e-1c9d5a7f2e30
+  MODULE_TYPE    = DXE_DRIVER
+  VERSION_STRING = 2.0
+  ENTRY_POINT    = SpiNorFlashDxeEntry
 
 [Sources]
   SpiNorFlashDxe.c
 
 [Packages]
   MdePkg/MdePkg.dec
-  MdeModulePkg/MdeModulePkg.dec
   Platform/MikroTik/CCR2004/CCR2004.dec
 
 [LibraryClasses]
+  AlpineHalLib
   BaseLib
   BaseMemoryLib
   DebugLib
   MemoryAllocationLib
-  SerialPortLib
   TimerLib
   UefiBootServicesTableLib
   UefiDriverEntryPoint
-  UefiLib
 
 [Protocols]
   gEfiSpiNorFlashProtocolGuid            ## PRODUCES
 
-[Guids]
-  gEdk2JedecSfdpSpiDxeDriverGuid        ## CONSUMES  # EFI_SPI_IO installed with this GUID
-
 [Depex]
-  gEdk2JedecSfdpSpiDxeDriverGuid
+  TRUE
+
+[BuildOptions]
+  GCC:*_*_AARCH64_CC_FLAGS = -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/common -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/pbs -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/pbs -include al_hal_plat_types.h -include al_hal_plat_services.h

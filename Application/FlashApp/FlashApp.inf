@@ -27,15 +27,11 @@
   BaseMemoryLib
   DebugLib
   MemoryAllocationLib
+  ShellLib
   UefiApplicationEntryPoint
   UefiBootServicesTableLib
   UefiLib
 
 [Protocols]
-  gEfiLoadedImageProtocolGuid          ## CONSUMES
   gEfiShellParametersProtocolGuid      ## CONSUMES
-  gEfiSimpleFileSystemProtocolGuid     ## CONSUMES
-
-[Guids]
-  gEfiFileInfoGuid                     ## CONSUMES
-  gEdk2JedecSfdpSpiDxeDriverGuid      ## CONSUMES
+  gEfiSpiNorFlashProtocolGuid          ## CONSUMES

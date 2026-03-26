@@ -17,12 +17,12 @@
 
 [FD.CCR2004]
 BaseAddress   = 0x01100000|gArmTokenSpaceGuid.PcdFdBaseAddress
-Size          = 0x00400000|gArmTokenSpaceGuid.PcdFdSize
+Size          = 0x00300000|gArmTokenSpaceGuid.PcdFdSize
 ErasePolarity = 1
 BlockSize     = 0x00001000
-NumBlocks     = 0x400
+NumBlocks     = 0x300
 
-0x00000000|0x00400000
+0x00000000|0x00300000
 gArmTokenSpaceGuid.PcdFvBaseAddress|gArmTokenSpaceGuid.PcdFvSize
 FV = FVMAIN_COMPACT
 
@@ -111,8 +111,6 @@ WRITE_STATUS       = TRUE
   INF MdeModulePkg/Bus/I2c/I2cDxe/I2cHostDxe.inf
 
   # SPI + SPI NOR Flash
-  INF Platform/MikroTik/CCR2004/Drivers/DwSpiDxe/DwSpiDxe.inf
-  INF MdeModulePkg/Bus/Spi/SpiBus/SpiBusDxe.inf
   INF Platform/MikroTik/CCR2004/Drivers/SpiNorFlashDxe/SpiNorFlashDxe.inf
   INF Platform/MikroTik/CCR2004/Drivers/BoardInfoDxe/BoardInfoDxe.inf
 

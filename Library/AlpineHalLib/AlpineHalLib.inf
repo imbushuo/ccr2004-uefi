@@ -48,6 +48,9 @@
   # MUIO pin mux driver
   drivers/pbs/al_hal_muio_mux.c
 
+  # SPI driver
+  drivers/pbs/al_hal_spi.c
+
   # PLL driver
   drivers/ring/al_hal_pll.c
 

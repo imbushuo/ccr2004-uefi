@@ -435,8 +435,6 @@
   #
   # SPI (DesignWare) + SPI NOR Flash
   #
-  Platform/MikroTik/CCR2004/Drivers/DwSpiDxe/DwSpiDxe.inf
-  MdeModulePkg/Bus/Spi/SpiBus/SpiBusDxe.inf
   Platform/MikroTik/CCR2004/Drivers/SpiNorFlashDxe/SpiNorFlashDxe.inf
   Platform/MikroTik/CCR2004/Drivers/BoardInfoDxe/BoardInfoDxe.inf
 

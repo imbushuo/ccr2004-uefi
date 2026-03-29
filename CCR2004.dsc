@@ -464,6 +464,7 @@
   Platform/MikroTik/CCR2004/Application/TftpPutApp/TftpPutApp.inf
   Platform/MikroTik/CCR2004/Application/FlashApp/FlashApp.inf
   Platform/MikroTik/CCR2004/Application/SramDumpApp/SramDumpApp.inf
+  Platform/MikroTik/CCR2004/Application/PcieEpTestApp/PcieEpTestApp.inf
 
   #
   # RouterOS Kernel Loader (boot option, not auto-booted)

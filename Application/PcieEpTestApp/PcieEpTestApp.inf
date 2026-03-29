@@ -1,0 +1,29 @@
+## @file
+#  PCIe EP Hello World smoke test for CCR2004-1G-2XS-PCIe.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION    = 0x0001001b
+  BASE_NAME      = PcieEpTestApp
+  FILE_GUID      = 3b7c9a1e-d428-4f65-a0b3-8e2d1c5f7a34
+  MODULE_TYPE    = UEFI_APPLICATION
+  VERSION_STRING = 1.0
+  ENTRY_POINT    = PcieEpTestAppEntry
+
+[Sources]
+  PcieEpTestApp.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  IoLib
+  TimerLib
+  UefiApplicationEntryPoint
+  UefiLib

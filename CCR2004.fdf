@@ -167,6 +167,9 @@ WRITE_STATUS       = TRUE
   # SRAM shared data dump
   INF Platform/MikroTik/CCR2004/Application/SramDumpApp/SramDumpApp.inf
 
+  # PCIe EP smoke test
+  INF Platform/MikroTik/CCR2004/Application/PcieEpTestApp/PcieEpTestApp.inf
+
 
   # RouterBoot chainloader + binary
   INF Platform/MikroTik/CCR2004/Application/RouterBootApp/RouterBootApp.inf

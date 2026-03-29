@@ -1,0 +1,6 @@
+#langdef en-US "English"
+
+#string STR_ETH_SETUP_TITLE    #language en-US "Ethernet Settings"
+#string STR_ETH_SETUP_HELP     #language en-US "Configure pre-OS Ethernet networking"
+#string STR_ETH_ENABLE_PROMPT  #language en-US "Enable pre-OS Networking"
+#string STR_ETH_ENABLE_HELP    #language en-US "When enabled, the UEFI Ethernet driver initializes the NIC and enables network features (PXE, HTTP boot, TFTP). When disabled, the NIC is not initialized, reducing boot time."

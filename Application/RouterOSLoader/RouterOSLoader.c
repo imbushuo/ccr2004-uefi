@@ -187,10 +187,17 @@ RouterOSLoaderEntry (
 
       for (Idx = 1; Idx < ShellParams->Argc; Idx++) {
         if (StrCmp (ShellParams->Argv[Idx], L"-RouterBoot") == 0) {
-          volatile UINT32  *Magic = (volatile UINT32 *)(UINTN)0x20102000;
+          //
+          // Write magic to PBS SRAM shared data reserved2[0..3] at 0xFD8A419A.
+          // Use byte access since the address is 2-byte aligned, not 4-byte.
+          //
+          volatile UINT8  *Magic = (volatile UINT8 *)(UINTN)0xFD8A419A;
 
-          DEBUG ((DEBUG_WARN, "[RouterOS] -RouterBoot: writing magic 0xFDFFB001 to 0x20102000\n"));
-          *Magic = 0xFDFFB001U;
+          DEBUG ((DEBUG_WARN, "[RouterOS] -RouterBoot: writing magic 0xFDFFB001 to SRAM 0xFD8A419A\n"));
+          Magic[0] = 0x01;
+          Magic[1] = 0xB0;
+          Magic[2] = 0xFF;
+          Magic[3] = 0xFD;
 
           DEBUG ((DEBUG_WARN, "[RouterOS] Warm resetting...\n"));
           gRT->ResetSystem (EfiResetWarm, EFI_SUCCESS, 0, NULL);

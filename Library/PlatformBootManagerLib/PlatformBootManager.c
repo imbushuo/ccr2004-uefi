@@ -38,6 +38,7 @@ STATIC EFI_GUID mRouterOSLoaderFileGuid = {
   { 0x91, 0xe0, 0x7f, 0x4c, 0x5b, 0x2a, 0x8d, 0x63 }
 };
 
+
 /**
   Boot description handler: name NAND filesystem "Built-in NAND".
 **/
@@ -233,7 +234,9 @@ PlatformRegisterFvBootOption (
   FreePool (HandleBuffer);
 
   //
-  // Check if this boot option already exists.
+  // Check if a boot option with the same Description already exists.
+  // We compare by description because the device path contains a
+  // MemoryMapped() node whose base address changes every boot.
   //
   BootOptions = EfiBootManagerGetLoadOptions (
                   &BootOptionCount,
@@ -242,12 +245,8 @@ PlatformRegisterFvBootOption (
 
   Found = FALSE;
   for (Index = 0; Index < BootOptionCount; Index++) {
-    if ((BootOptions[Index].FilePath != NULL) &&
-        (CompareMem (
-           BootOptions[Index].FilePath,
-           DevicePath,
-           GetDevicePathSize (DevicePath)
-           ) == 0))
+    if ((BootOptions[Index].Description != NULL) &&
+        (StrCmp (BootOptions[Index].Description, Description) == 0))
     {
       Found = TRUE;
       break;

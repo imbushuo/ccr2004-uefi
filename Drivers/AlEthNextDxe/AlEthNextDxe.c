@@ -9,8 +9,14 @@
 **/
 
 #include "AlEthNextDxe.h"
+#include <Library/HiiLib.h>
+#include <Library/UefiHiiServicesLib.h>
+#include <Library/UefiRuntimeServicesTableLib.h>
 #include <Protocol/EmbeddedGpio.h>
+#include <Protocol/HiiConfigAccess.h>
+#include <Protocol/HiiConfigRouting.h>
 #include "al_hal_pll.h"
+#include "EthSetupGuid.h"
 
 STATIC EFI_CPU_ARCH_PROTOCOL  *mCpu = NULL;
 
@@ -1432,6 +1438,260 @@ EthPhyReset (
   DEBUG ((DEBUG_INFO, "AlEthNext: PHY reset via GPIO40 complete\n"));
 }
 
+// ---- HII Setup Page for "Enable pre-OS Networking" ----
+
+extern UINT8  EthSetupBin[];
+extern UINT8  AlEthNextDxeStrings[];
+
+STATIC EFI_GUID       mEthSetupFormsetGuid = ETH_SETUP_FORMSET_GUID;
+STATIC EFI_HII_HANDLE mEthHiiHandle;
+STATIC EFI_HANDLE     mEthHiiDriverHandle;
+
+#pragma pack(1)
+typedef struct {
+  VENDOR_DEVICE_PATH          VendorDevicePath;
+  EFI_DEVICE_PATH_PROTOCOL    End;
+} ETH_HII_VENDOR_DEVICE_PATH;
+#pragma pack()
+
+STATIC ETH_HII_VENDOR_DEVICE_PATH  mEthHiiDevicePath = {
+  {
+    { HARDWARE_DEVICE_PATH, HW_VENDOR_DP, { sizeof (VENDOR_DEVICE_PATH) } },
+    ETH_SETUP_FORMSET_GUID
+  },
+  { END_DEVICE_PATH_TYPE, END_ENTIRE_DEVICE_PATH_SUBTYPE, { sizeof (EFI_DEVICE_PATH_PROTOCOL) } }
+};
+
+STATIC
+EFI_STATUS
+EFIAPI
+EthExtractConfig (
+  IN  CONST EFI_HII_CONFIG_ACCESS_PROTOCOL  *This,
+  IN  CONST EFI_STRING                      Request,
+  OUT EFI_STRING                            *Progress,
+  OUT EFI_STRING                            *Results
+  )
+{
+  EFI_STATUS                       Status;
+  ETH_SETUP_CONFIG                 Config;
+  UINTN                            VarSize;
+  EFI_HII_CONFIG_ROUTING_PROTOCOL  *ConfigRouting;
+  BOOLEAN                          AllocatedRequest;
+  EFI_STRING                       ConfigRequest;
+  EFI_STRING                       ConfigRequestHdr;
+  UINTN                            Size;
+
+  if (Progress == NULL || Results == NULL) return EFI_INVALID_PARAMETER;
+  *Progress = Request;
+
+  //
+  // Only handle requests for our varstore
+  //
+  if (Request != NULL && !HiiIsConfigHdrMatch (Request, &mEthSetupFormsetGuid, ETH_SETUP_VARIABLE_NAME)) {
+    return EFI_NOT_FOUND;
+  }
+
+  /* Read current config from variable; create with default if missing */
+  VarSize = sizeof (Config);
+  Status = gRT->GetVariable (ETH_SETUP_VARIABLE_NAME, &mEthSetupFormsetGuid,
+                             NULL, &VarSize, &Config);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "AlEthNext: ExtractConfig: EthSetup not found, creating default (enabled=1)\n"));
+    Config.EnableNetworking = 1;
+    gRT->SetVariable (ETH_SETUP_VARIABLE_NAME, &mEthSetupFormsetGuid,
+                      EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
+                      sizeof (Config), &Config);
+  } else {
+    DEBUG ((DEBUG_WARN, "AlEthNext: ExtractConfig: EthSetup found, enabled=%u\n", Config.EnableNetworking));
+  }
+
+  Status = gBS->LocateProtocol (&gEfiHiiConfigRoutingProtocolGuid, NULL, (VOID **)&ConfigRouting);
+  if (EFI_ERROR (Status)) return Status;
+
+  ConfigRequestHdr = HiiConstructConfigHdr (
+                       &mEthSetupFormsetGuid,
+                       ETH_SETUP_VARIABLE_NAME,
+                       mEthHiiDriverHandle
+                       );
+  if (ConfigRequestHdr == NULL) return EFI_OUT_OF_RESOURCES;
+
+  AllocatedRequest = FALSE;
+  ConfigRequest = (EFI_STRING)Request;
+  if (Request == NULL || (StrStr (Request, L"OFFSET") == NULL)) {
+    Size = (StrLen (ConfigRequestHdr) + 32 + 1) * sizeof (CHAR16);
+    ConfigRequest = AllocateZeroPool (Size);
+    if (ConfigRequest == NULL) { FreePool (ConfigRequestHdr); return EFI_OUT_OF_RESOURCES; }
+    AllocatedRequest = TRUE;
+    UnicodeSPrint (ConfigRequest, Size, L"%s&OFFSET=0&WIDTH=%016LX", ConfigRequestHdr,
+                   (UINT64)sizeof (ETH_SETUP_CONFIG));
+  }
+
+  Status = ConfigRouting->BlockToConfig (ConfigRouting, ConfigRequest,
+                                          (UINT8 *)&Config, sizeof (Config),
+                                          Results, Progress);
+
+  FreePool (ConfigRequestHdr);
+  if (AllocatedRequest) {
+    FreePool (ConfigRequest);
+    if (Request == NULL) *Progress = NULL;
+  }
+
+  return Status;
+}
+
+STATIC
+EFI_STATUS
+EFIAPI
+EthRouteConfig (
+  IN  CONST EFI_HII_CONFIG_ACCESS_PROTOCOL  *This,
+  IN  CONST EFI_STRING                      Configuration,
+  OUT EFI_STRING                            *Progress
+  )
+{
+  EFI_STATUS                       Status;
+  ETH_SETUP_CONFIG                 Config;
+  EFI_HII_CONFIG_ROUTING_PROTOCOL  *ConfigRouting;
+  UINTN                            BufferSize;
+
+  if (Configuration == NULL || Progress == NULL) return EFI_INVALID_PARAMETER;
+  *Progress = Configuration;
+
+  //
+  // Check if this is for our varstore by looking for our GUID in the string
+  //
+  if (HiiIsConfigHdrMatch (Configuration, &mEthSetupFormsetGuid, ETH_SETUP_VARIABLE_NAME)) {
+    Status = gBS->LocateProtocol (&gEfiHiiConfigRoutingProtocolGuid, NULL, (VOID **)&ConfigRouting);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_WARN, "AlEthNext: RouteConfig: ConfigRouting not found\n"));
+      return Status;
+    }
+
+    BufferSize = sizeof (Config);
+    Status = ConfigRouting->ConfigToBlock (ConfigRouting, Configuration,
+                                            (UINT8 *)&Config, &BufferSize, Progress);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_WARN, "AlEthNext: RouteConfig: ConfigToBlock failed: %r\n", Status));
+      return Status;
+    }
+
+    //
+    // Delete then recreate to handle attribute mismatch from older variable
+    //
+    gRT->SetVariable (ETH_SETUP_VARIABLE_NAME, &mEthSetupFormsetGuid, 0, 0, NULL);
+    Status = gRT->SetVariable (ETH_SETUP_VARIABLE_NAME, &mEthSetupFormsetGuid,
+                               EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
+                               sizeof (Config), &Config);
+    DEBUG ((DEBUG_WARN, "AlEthNext: RouteConfig: SetVariable=%r enabled=%u\n", Status, Config.EnableNetworking));
+
+    return Status;
+  }
+
+  return EFI_NOT_FOUND;
+}
+
+STATIC
+EFI_STATUS
+EFIAPI
+EthCallback (
+  IN  CONST EFI_HII_CONFIG_ACCESS_PROTOCOL  *This,
+  IN  EFI_BROWSER_ACTION                    Action,
+  IN  EFI_QUESTION_ID                       QuestionId,
+  IN  UINT8                                 Type,
+  IN  EFI_IFR_TYPE_VALUE                    *Value,
+  OUT EFI_BROWSER_ACTION_REQUEST            *ActionRequest
+  )
+{
+  return EFI_UNSUPPORTED;
+}
+
+STATIC EFI_HII_CONFIG_ACCESS_PROTOCOL mEthConfigAccess = {
+  EthExtractConfig, EthRouteConfig, EthCallback
+};
+
+STATIC
+VOID
+EthInstallSetupPage (
+  VOID
+  )
+{
+  EFI_STATUS  Status;
+
+  mEthHiiDriverHandle = NULL;
+  Status = gBS->InstallMultipleProtocolInterfaces (
+                  &mEthHiiDriverHandle,
+                  &gEfiDevicePathProtocolGuid,
+                  &mEthHiiDevicePath,
+                  &gEfiHiiConfigAccessProtocolGuid,
+                  &mEthConfigAccess,
+                  NULL
+                  );
+  if (EFI_ERROR (Status)) return;
+
+  mEthHiiHandle = HiiAddPackages (&mEthSetupFormsetGuid, mEthHiiDriverHandle,
+                                   AlEthNextDxeStrings, EthSetupBin, NULL);
+
+  //
+  // Do NOT write a default here.  If the variable doesn't exist,
+  // IsNetworkingEnabled() returns TRUE (default=enabled).
+  // NvramPersistDxe will restore the saved value if one exists.
+  // Writing a default here would race with restore and overwrite
+  // the user's saved "disabled" setting.
+  //
+}
+
+/**
+  Query BoardInfo for RouterBoot chainboot status.
+**/
+STATIC
+BOOLEAN
+IsChainBootFromRouterBoot (
+  VOID
+  )
+{
+  EFI_STATUS                      Status;
+  MIKROTIK_BOARD_INFO_PROTOCOL    *BoardInfo;
+
+  Status = gBS->LocateProtocol (&gMikroTikBoardInfoProtocolGuid, NULL, (VOID **)&BoardInfo);
+  if (EFI_ERROR (Status)) {
+    return FALSE;
+  }
+
+  return BoardInfo->IsChainBootFromRouterBoot (BoardInfo);
+}
+
+/**
+  Check if pre-OS networking should be initialized.
+  Returns TRUE if:
+    - RouterBoot chainboot was detected (always force-enable), OR
+    - EthSetup.EnableNetworking variable is TRUE or missing (default)
+**/
+STATIC
+BOOLEAN
+IsNetworkingEnabled (
+  OUT BOOLEAN  *IsChainBoot
+  )
+{
+  EFI_STATUS       Status;
+  ETH_SETUP_CONFIG Config;
+  UINTN            VarSize;
+  EFI_GUID         Guid = ETH_SETUP_FORMSET_GUID;
+
+  *IsChainBoot = IsChainBootFromRouterBoot ();
+  if (*IsChainBoot) {
+    DEBUG ((DEBUG_WARN, "AlEthNext: RouterBoot chainboot detected, forcing Ethernet ENABLED\n"));
+    return TRUE;
+  }
+
+  VarSize = sizeof (Config);
+  Status = gRT->GetVariable (ETH_SETUP_VARIABLE_NAME, &Guid, NULL, &VarSize, &Config);
+  if (EFI_ERROR (Status)) {
+    DEBUG ((DEBUG_WARN, "AlEthNext: IsNetworkingEnabled: var not found, default TRUE\n"));
+    return TRUE;
+  }
+  DEBUG ((DEBUG_WARN, "AlEthNext: IsNetworkingEnabled: enabled=%u\n", Config.EnableNetworking));
+  return (Config.EnableNetworking != 0);
+}
+
 EFI_STATUS
 EFIAPI
 AlEthNextDxeEntryPoint (
@@ -1440,10 +1700,28 @@ AlEthNextDxeEntryPoint (
   )
 {
   EFI_STATUS  Status;
+  BOOLEAN     ChainBoot;
 
   DEBUG ((DEBUG_INFO, "AlEthNext: Driver loaded (HAL-based Alpine Ethernet)\n"));
 
-  EthPhyReset ();
+  /* Always install setup page so the setting is visible in Device Manager */
+  EthInstallSetupPage ();
+
+  /* Check if pre-OS networking is enabled */
+  if (!IsNetworkingEnabled (&ChainBoot)) {
+    DEBUG ((DEBUG_WARN, "AlEthNext: Pre-OS networking DISABLED by user setting\n"));
+    return EFI_SUCCESS;
+  }
+
+  /*
+   * Skip PHY reset on RouterBoot chainboot — RouterBoot already initialized
+   * the PHY and resetting it would break the link state it established.
+   */
+  if (ChainBoot) {
+    DEBUG ((DEBUG_WARN, "AlEthNext: Chainboot: skipping PHY reset (already done by RouterBoot)\n"));
+  } else {
+    EthPhyReset ();
+  }
 
   /* Locate CPU Architecture Protocol (for SetMemoryAttributes) */
   Status = gBS->LocateProtocol (&gEfiCpuArchProtocolGuid, NULL, (VOID **)&mCpu);

@@ -110,9 +110,10 @@ WRITE_STATUS       = TRUE
   INF Platform/MikroTik/CCR2004/Drivers/FanDxe/FanDxe.inf
   INF MdeModulePkg/Bus/I2c/I2cDxe/I2cHostDxe.inf
 
-  # SPI + SPI NOR Flash
+  # SPI + SPI NOR Flash + NVRAM persistence
   INF Platform/MikroTik/CCR2004/Drivers/SpiNorFlashDxe/SpiNorFlashDxe.inf
   INF Platform/MikroTik/CCR2004/Drivers/BoardInfoDxe/BoardInfoDxe.inf
+  INF Platform/MikroTik/CCR2004/Drivers/NvramPersistDxe/NvramPersistDxe.inf
 
   # NAND
   INF Platform/MikroTik/CCR2004/Drivers/AlNandDxe/AlNandDxe.inf
@@ -162,6 +163,10 @@ WRITE_STATUS       = TRUE
 
   # SPI flash update utility
   INF Platform/MikroTik/CCR2004/Application/FlashApp/FlashApp.inf
+
+  # SRAM shared data dump
+  INF Platform/MikroTik/CCR2004/Application/SramDumpApp/SramDumpApp.inf
+
 
   # RouterBoot chainloader + binary
   INF Platform/MikroTik/CCR2004/Application/RouterBootApp/RouterBootApp.inf

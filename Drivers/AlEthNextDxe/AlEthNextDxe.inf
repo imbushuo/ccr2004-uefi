@@ -2,7 +2,8 @@
 #  Alpine Ethernet UEFI SNP Driver — HAL-based.
 #
 #  Uses the Alpine HAL library for full hardware initialization
-#  including EC forwarding tables.
+#  including EC forwarding tables.  Provides HII setup page for
+#  enabling/disabling pre-OS networking.
 #
 #  Copyright (c) 2024, MikroTik. All rights reserved.
 #
@@ -21,9 +22,13 @@
 [Sources]
   AlEthNextDxe.c
   AlEthNextDxe.h
+  EthSetupGuid.h
+  EthSetup.vfr
+  EthSetup.uni
 
 [Packages]
   MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
   EmbeddedPkg/EmbeddedPkg.dec
   NetworkPkg/NetworkPkg.dec
   Platform/MikroTik/CCR2004/CCR2004.dec
@@ -35,25 +40,35 @@
   CacheMaintenanceLib
   DebugLib
   DevicePathLib
+  HiiLib
   IoLib
+  PrintLib
   MemoryAllocationLib
   NetLib
   TimerLib
   UefiBootServicesTableLib
   UefiDriverEntryPoint
   UefiLib
+  UefiRuntimeServicesTableLib
 
 [Protocols]
   gEfiCpuArchProtocolGuid                  ## CONSUMES
-  gEfiSimpleNetworkProtocolGuid            ## BY_START
   gEfiDevicePathProtocolGuid               ## BY_START
+  gEfiHiiConfigAccessProtocolGuid          ## PRODUCES
+  gEfiHiiConfigRoutingProtocolGuid         ## CONSUMES
   gEfiPciIoProtocolGuid                    ## TO_START
-  gMikroTikBoardInfoProtocolGuid           ## CONSUMES
+  gEfiSimpleNetworkProtocolGuid            ## BY_START
   gEmbeddedGpioProtocolGuid                ## CONSUMES
+  gMikroTikBoardInfoProtocolGuid           ## CONSUMES
+  gMikroTikNvramReadyProtocolGuid          ## CONSUMES
+
+[Guids]
+  gEfiHiiPlatformSetupFormsetGuid          ## PRODUCES
 
 [Depex]
   gMikroTikBoardInfoProtocolGuid AND
-  gEmbeddedGpioProtocolGuid
+  gEmbeddedGpioProtocolGuid AND
+  gMikroTikNvramReadyProtocolGuid
 
 [BuildOptions]
   GCC:*_*_AARCH64_CC_FLAGS = -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/common -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/eth -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/udma -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/iofic -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/io_fabric -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/eth -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/udma -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/ring -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/drivers/ring -include al_hal_plat_types.h -include al_hal_plat_services.h

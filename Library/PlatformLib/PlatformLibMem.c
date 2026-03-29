@@ -15,10 +15,23 @@
 #define CCR2004_DRAM_PRIMARY_SIZE   0x80000000ULL  // 2GB
 #define CCR2004_DRAM_SECONDARY_BASE 0x80000000ULL
 #define CCR2004_DRAM_SECONDARY_SIZE 0x40000000ULL  // 1GB
-#define CCR2004_PERIPH_BASE         0xF0000000ULL
-#define CCR2004_PERIPH_SIZE         0x10000000ULL  // 256MB (includes ECAM at 0xFBC00000, PCIe MMIO at 0xFE000000)
 
-#define MAX_VIRTUAL_MEMORY_MAP_DESCRIPTORS  4
+//
+// Peripheral space split around PBS SRAM:
+//   0xF0000000 - 0xFD8A3FFF : peripherals (device)
+//   0xFD8A4000 - 0xFD8A7FFF : PBS SRAM 16KB (uncached normal — allows unaligned access)
+//   0xFD8A8000 - 0xFFFFFFFF : peripherals (device) — includes PBS regfile, NAND, etc.
+//
+#define CCR2004_PERIPH1_BASE        0xF0000000ULL
+#define CCR2004_PERIPH1_SIZE        0x0D8A4000ULL  // F0000000..FD8A3FFF
+
+#define CCR2004_PBS_SRAM_BASE       0xFD8A4000ULL
+#define CCR2004_PBS_SRAM_SIZE       0x00004000ULL  // 16KB
+
+#define CCR2004_PERIPH2_BASE        0xFD8A8000ULL
+#define CCR2004_PERIPH2_SIZE        0x02758000ULL  // FD8A8000..FFFFFFFF
+
+#define MAX_VIRTUAL_MEMORY_MAP_DESCRIPTORS  6
 
 /**
   Return the Virtual Memory Map of the platform.
@@ -59,10 +72,24 @@ ArmPlatformGetVirtualMemoryMap (
   VirtualMemoryTable[Index].Attributes   = ARM_MEMORY_REGION_ATTRIBUTE_WRITE_BACK;
   Index++;
 
-  // SoC peripherals (GIC, UART, PCIe ECAM @ 0xFBC00000, PCIe MMIO @ 0xFE000000)
-  VirtualMemoryTable[Index].PhysicalBase = CCR2004_PERIPH_BASE;
-  VirtualMemoryTable[Index].VirtualBase  = CCR2004_PERIPH_BASE;
-  VirtualMemoryTable[Index].Length       = CCR2004_PERIPH_SIZE;
+  // Peripherals below PBS SRAM (device memory)
+  VirtualMemoryTable[Index].PhysicalBase = CCR2004_PERIPH1_BASE;
+  VirtualMemoryTable[Index].VirtualBase  = CCR2004_PERIPH1_BASE;
+  VirtualMemoryTable[Index].Length       = CCR2004_PERIPH1_SIZE;
+  VirtualMemoryTable[Index].Attributes   = ARM_MEMORY_REGION_ATTRIBUTE_DEVICE;
+  Index++;
+
+  // PBS SRAM (uncached normal — permits unaligned access for shared data structs)
+  VirtualMemoryTable[Index].PhysicalBase = CCR2004_PBS_SRAM_BASE;
+  VirtualMemoryTable[Index].VirtualBase  = CCR2004_PBS_SRAM_BASE;
+  VirtualMemoryTable[Index].Length       = CCR2004_PBS_SRAM_SIZE;
+  VirtualMemoryTable[Index].Attributes   = ARM_MEMORY_REGION_ATTRIBUTE_UNCACHED_UNBUFFERED;
+  Index++;
+
+  // Peripherals above PBS SRAM (device memory)
+  VirtualMemoryTable[Index].PhysicalBase = CCR2004_PERIPH2_BASE;
+  VirtualMemoryTable[Index].VirtualBase  = CCR2004_PERIPH2_BASE;
+  VirtualMemoryTable[Index].Length       = CCR2004_PERIPH2_SIZE;
   VirtualMemoryTable[Index].Attributes   = ARM_MEMORY_REGION_ATTRIBUTE_DEVICE;
   Index++;
 

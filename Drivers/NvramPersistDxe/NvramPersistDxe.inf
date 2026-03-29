@@ -1,0 +1,54 @@
+## @file
+#  NVRAM persistence driver — SPI flash backed variable storage
+#  with Device Manager setup page for NVRAM reset.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION    = 0x0001001b
+  BASE_NAME      = NvramPersistDxe
+  FILE_GUID      = 9c1e3b4a-d567-4f82-a0b5-7e2d8c3f1a96
+  MODULE_TYPE    = DXE_DRIVER
+  VERSION_STRING = 1.0
+  ENTRY_POINT    = NvramPersistDxeEntry
+
+[Sources]
+  NvramPersistDxe.c
+  NvramSetupGuid.h
+  NvramSetup.vfr
+  NvramSetup.uni
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  Platform/MikroTik/CCR2004/CCR2004.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  DevicePathLib
+  HiiLib
+  MemoryAllocationLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiRuntimeServicesTableLib
+
+[Protocols]
+  gEfiDevicePathProtocolGuid           ## PRODUCES
+  gEfiHiiConfigAccessProtocolGuid      ## PRODUCES
+  gEdkiiPlatformSpecificResetHandlerProtocolGuid  ## CONSUMES
+  gEfiSpiNorFlashProtocolGuid          ## CONSUMES
+  gMikroTikNvramReadyProtocolGuid      ## PRODUCES
+
+[Guids]
+  gEfiEventReadyToBootGuid            ## CONSUMES
+  gEfiHiiPlatformSetupFormsetGuid     ## PRODUCES
+
+[Depex]
+  gEfiVariableArchProtocolGuid AND
+  gEfiSpiNorFlashProtocolGuid

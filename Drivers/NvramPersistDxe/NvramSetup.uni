@@ -1,0 +1,15 @@
+// @file
+//  NVRAM Setup strings.
+//
+//  Copyright (c) 2024, MikroTik. All rights reserved.
+//  SPDX-License-Identifier: BSD-2-Clause-Patent
+//
+
+#langdef en-US "English"
+
+#string STR_NVRAM_SETUP_TITLE   #language en-US "NVRAM Settings"
+#string STR_NVRAM_SETUP_HELP    #language en-US "Manage persistent NVRAM storage"
+#string STR_NVRAM_RESET_TEXT    #language en-US "Reset NVRAM to Defaults"
+#string STR_NVRAM_RESET_HELP    #language en-US "Erase all saved UEFI variables from SPI flash. Takes effect on next boot."
+#string STR_NVRAM_RESET_DONE    #language en-US "NVRAM erased. Please reboot."
+#string STR_NVRAM_RESET_FAIL    #language en-US "NVRAM erase failed!"

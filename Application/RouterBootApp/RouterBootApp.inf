@@ -24,6 +24,7 @@
 [Packages]
   MdePkg/MdePkg.dec
   ArmPkg/ArmPkg.dec
+  Platform/MikroTik/CCR2004/CCR2004.dec
 
 [LibraryClasses]
   ArmLib
@@ -34,6 +35,7 @@
   UefiApplicationEntryPoint
   UefiBootServicesTableLib
   UefiLib
+  UefiRuntimeServicesTableLib
 
 [Protocols]
   gEfiFirmwareVolume2ProtocolGuid      ## CONSUMES

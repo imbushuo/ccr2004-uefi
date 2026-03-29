@@ -2,7 +2,8 @@
   MikroTik Board Info Protocol definition.
 
   Provides board-specific data (board name, serial number, MAC address)
-  parsed from the SPI flash TLV block at offset 0xB0000.
+  parsed from the SPI flash TLV block, plus a chainboot flag indicating
+  whether this boot was initiated by RouterBootApp.
 
   Copyright (c) 2024, MikroTik. All rights reserved.
   SPDX-License-Identifier: BSD-2-Clause-Patent
@@ -40,12 +41,30 @@ EFI_STATUS
   OUT EFI_MAC_ADDRESS                     *MacAddress
   );
 
+typedef
+BOOLEAN
+(EFIAPI *MIKROTIK_BOARD_INFO_IS_CHAIN_BOOT)(
+  IN  CONST MIKROTIK_BOARD_INFO_PROTOCOL  *This
+  );
+
 struct _MIKROTIK_BOARD_INFO_PROTOCOL {
   MIKROTIK_BOARD_INFO_GET_BOARD_NAME   GetBoardName;
   MIKROTIK_BOARD_INFO_GET_SERIAL       GetSerial;
   MIKROTIK_BOARD_INFO_GET_MAC_ADDRESS  GetMacAddress;
+  MIKROTIK_BOARD_INFO_IS_CHAIN_BOOT    IsChainBootFromRouterBoot;
 };
 
 extern EFI_GUID  gMikroTikBoardInfoProtocolGuid;
+
+//
+// Variable name used by RouterBootApp to signal chainboot.
+// Written before ExitBootServices, consumed+deleted by BoardInfoDxe on next boot.
+//
+#define ROUTERBOOT_CHAINBOOT_VARIABLE_NAME  L"RouterBootChainBoot"
+
+//
+// Use the BoardInfo GUID as the vendor GUID for the chainboot variable.
+//
+#define ROUTERBOOT_CHAINBOOT_VARIABLE_GUID  MIKROTIK_BOARD_INFO_PROTOCOL_GUID
 
 #endif /* MIKROTIK_BOARD_INFO_PROTOCOL_H_ */

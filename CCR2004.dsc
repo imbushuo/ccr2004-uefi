@@ -437,6 +437,7 @@
   #
   Platform/MikroTik/CCR2004/Drivers/SpiNorFlashDxe/SpiNorFlashDxe.inf
   Platform/MikroTik/CCR2004/Drivers/BoardInfoDxe/BoardInfoDxe.inf
+  Platform/MikroTik/CCR2004/Drivers/NvramPersistDxe/NvramPersistDxe.inf
 
   #
   # NAND (Annapurna Labs + Toshiba BENAND)
@@ -462,6 +463,7 @@
   Platform/MikroTik/CCR2004/Application/DumpBlockApp/DumpBlockApp.inf
   Platform/MikroTik/CCR2004/Application/TftpPutApp/TftpPutApp.inf
   Platform/MikroTik/CCR2004/Application/FlashApp/FlashApp.inf
+  Platform/MikroTik/CCR2004/Application/SramDumpApp/SramDumpApp.inf
 
   #
   # RouterOS Kernel Loader (boot option, not auto-booted)

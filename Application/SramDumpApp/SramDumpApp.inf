@@ -1,0 +1,31 @@
+## @file
+#  SramDumpApp — dumps Alpine V2 PBS SRAM general shared data.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION    = 0x0001001b
+  BASE_NAME      = SramDumpApp
+  FILE_GUID      = 6b4d2e1a-f893-4c75-a1d0-9e3c7b5f8a16
+  MODULE_TYPE    = UEFI_APPLICATION
+  VERSION_STRING = 1.0
+  ENTRY_POINT    = SramDumpAppEntry
+
+[Sources]
+  SramDumpApp.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  Platform/MikroTik/CCR2004/CCR2004.dec
+
+[LibraryClasses]
+  AlpineHalLib
+  UefiApplicationEntryPoint
+  UefiLib
+
+[BuildOptions]
+  GCC:*_*_AARCH64_CC_FLAGS = -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/include/common -I$(WORKSPACE)/edk2-platforms/Platform/MikroTik/CCR2004/Library/AlpineHalLib/services/shared_mem -include al_hal_plat_types.h -include al_hal_plat_services.h

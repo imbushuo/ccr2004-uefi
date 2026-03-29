@@ -1,0 +1,30 @@
+## @file
+#  NvramResetApp — erases SPI flash NVRAM region.
+#
+#  Copyright (c) 2024, MikroTik. All rights reserved.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+#
+##
+
+[Defines]
+  INF_VERSION    = 0x0001001b
+  BASE_NAME      = NvramResetApp
+  FILE_GUID      = 4a2b7c1e-e893-4d65-b0a1-8c3d9e5f7a12
+  MODULE_TYPE    = UEFI_APPLICATION
+  VERSION_STRING = 1.0
+  ENTRY_POINT    = NvramResetAppEntry
+
+[Sources]
+  NvramResetApp.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+
+[LibraryClasses]
+  UefiApplicationEntryPoint
+  UefiBootServicesTableLib
+  UefiLib
+
+[Protocols]
+  gEfiSpiNorFlashProtocolGuid          ## CONSUMES

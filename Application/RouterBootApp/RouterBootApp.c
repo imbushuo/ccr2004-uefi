@@ -18,7 +18,9 @@
 #include <Library/MemoryAllocationLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/UefiLib.h>
+#include <Library/UefiRuntimeServicesTableLib.h>
 #include <Guid/Fdt.h>
+#include <Protocol/BoardInfo.h>
 #include <Pi/PiFirmwareVolume.h>
 #include <Pi/PiFirmwareFile.h>
 #include <Protocol/FirmwareVolume2.h>
@@ -158,6 +160,29 @@ RouterBootAppEntry (
   UINTN       MapKey;
   UINTN       DescriptorSize;
   UINT32      DescriptorVersion;
+
+  //
+  // Set RouterBootChainBoot variable to signal BoardInfoDxe on next boot
+  // that this was a RouterBoot chainboot.  This is a persistent NV+BS variable
+  // that survives across the warm reset RouterBoot may trigger.
+  //
+  {
+    UINT8     ChainBootFlag = 1;
+    EFI_GUID  ChainBootGuid = ROUTERBOOT_CHAINBOOT_VARIABLE_GUID;
+
+    Status = gRT->SetVariable (
+                    ROUTERBOOT_CHAINBOOT_VARIABLE_NAME,
+                    &ChainBootGuid,
+                    EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS,
+                    sizeof (ChainBootFlag),
+                    &ChainBootFlag
+                    );
+    if (EFI_ERROR (Status)) {
+      Print (L"RouterBootApp: WARNING: failed to set chainboot variable: %r\n", Status);
+    } else {
+      Print (L"RouterBootApp: chainboot variable set\n");
+    }
+  }
 
   Print (L"RouterBootApp: loading RouterBoot binary...\n");
 

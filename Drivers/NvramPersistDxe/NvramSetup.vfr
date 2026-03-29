@@ -1,0 +1,27 @@
+// @file
+//  NVRAM Setup — provides "Reset NVRAM to Defaults" in Device Manager.
+//
+//  Copyright (c) 2024, MikroTik. All rights reserved.
+//  SPDX-License-Identifier: BSD-2-Clause-Patent
+//
+
+#include "NvramSetupGuid.h"
+
+formset
+  guid     = NVRAM_SETUP_FORMSET_GUID,
+  title    = STRING_TOKEN(STR_NVRAM_SETUP_TITLE),
+  help     = STRING_TOKEN(STR_NVRAM_SETUP_HELP),
+  classguid = EFI_HII_PLATFORM_SETUP_FORMSET_GUID,
+
+  form formid = 1,
+    title = STRING_TOKEN(STR_NVRAM_SETUP_TITLE);
+
+    text
+      help   = STRING_TOKEN(STR_NVRAM_RESET_HELP),
+      text   = STRING_TOKEN(STR_NVRAM_RESET_TEXT),
+      flags  = INTERACTIVE,
+      key    = 0x1001;
+
+  endform;
+
+endformset;

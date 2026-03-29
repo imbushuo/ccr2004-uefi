@@ -1,0 +1,26 @@
+#include "EthSetupGuid.h"
+
+formset
+  guid     = ETH_SETUP_FORMSET_GUID,
+  title    = STRING_TOKEN(STR_ETH_SETUP_TITLE),
+  help     = STRING_TOKEN(STR_ETH_SETUP_HELP),
+  classguid = EFI_HII_PLATFORM_SETUP_FORMSET_GUID,
+
+  varstore ETH_SETUP_CONFIG,
+    varid   = ETH_SETUP_VARSTORE_ID,
+    name    = EthSetup,
+    guid    = ETH_SETUP_FORMSET_GUID;
+
+  form formid = 1,
+    title = STRING_TOKEN(STR_ETH_SETUP_TITLE);
+
+    checkbox varid   = EthSetup.EnableNetworking,
+      prompt  = STRING_TOKEN(STR_ETH_ENABLE_PROMPT),
+      help    = STRING_TOKEN(STR_ETH_ENABLE_HELP),
+      flags   = CHECKBOX_DEFAULT,
+      default = TRUE,
+    endcheckbox;
+
+  endform;
+
+endformset;

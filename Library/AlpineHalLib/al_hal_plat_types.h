@@ -16,6 +16,13 @@ typedef int al_bool;
 #define AL_TRUE   1
 #define AL_FALSE  0
 
+/* Alpine V2 device identification for conditional compilation */
+#define AL_DEV_ID_ALPINE_V1  0
+#define AL_DEV_ID_ALPINE_V2  1
+#define AL_DEV_ID_ALPINE_V3  2
+#define AL_DEV_ID_ALPINE_V4  3
+#define AL_DEV_ID            AL_DEV_ID_ALPINE_V2
+
 typedef UINT64 al_phys_addr_t;
 
 /* AArch64 is always little-endian in UEFI */

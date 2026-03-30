@@ -53,10 +53,27 @@ CFLAGS=(
   -mcpu=cortex-a72
   -mgeneral-regs-only
   -I"${SRC_DIR}"
-  -I"${SRC_DIR}/hal"
+  -I"${SRC_DIR}/hal/platform"
+  -I"${SRC_DIR}/hal/include/common"
+  -I"${SRC_DIR}/hal/include/pbs"
+  -I"${SRC_DIR}/hal/include/pcie"
+  -I"${SRC_DIR}/hal/include/iofic"
+  -I"${SRC_DIR}/hal/include/sys_fabric"
+  -I"${SRC_DIR}/hal/include/io_fabric"
+  -I"${SRC_DIR}/hal/include/serdes"
+  -I"${SRC_DIR}/hal/drivers/spi"
+  -I"${SRC_DIR}/hal/drivers/pbs"
+  -I"${SRC_DIR}/hal/drivers/pcie"
+  -I"${SRC_DIR}/hal/drivers/sys_fabric"
+  -I"${SRC_DIR}/hal/services/pcie"
   -include al_hal_plat_types.h
   -include al_hal_plat_services.h
   -Wno-unused-parameter
+  -Wno-missing-field-initializers
+  -Wno-sign-compare
+  -Wno-unused-function
+  -Wno-unused-variable
+  -Wno-unused-but-set-variable
 )
 
 SFLAGS=(
@@ -84,8 +101,18 @@ SOURCES_C=(
   ElfLoader.c
   Exception.c
   Watchdog.c
-  hal/al_hal_spi.c
-  hal/al_hal_pbs_stubs.c
+  hal/drivers/spi/al_hal_spi.c
+  hal/drivers/pbs/al_hal_pbs_stubs.c
+  hal/drivers/pbs/al_hal_addr_map.c
+  hal/drivers/pcie/al_hal_pcie.c
+  hal/drivers/pcie/al_hal_pcie_interrupts.c
+  hal/drivers/pcie/al_hal_pcie_reg_ptr_set_rev1.c
+  hal/drivers/pcie/al_hal_pcie_reg_ptr_set_rev2.c
+  hal/drivers/pcie/al_hal_pcie_reg_ptr_set_rev3.c
+  hal/drivers/sys_fabric/al_hal_sys_fabric_utils.c
+  hal/drivers/sys_fabric/al_hal_sys_fabric_utils_v1_v2.c
+  hal/services/pcie/al_init_pcie.c
+  hal/services/pcie/al_init_pcie_debug.c
 )
 
 SOURCES_S=(
@@ -96,7 +123,7 @@ SOURCES_S=(
 OBJECTS=()
 
 for SRC in "${SOURCES_C[@]}"; do
-  OBJ_NAME="$(basename "${SRC}" .c).o"
+  OBJ_NAME="$(echo "${SRC}" | sed 's|/|_|g; s|\.c$|.o|')"
   OBJ="${OUT_DIR}/${OBJ_NAME}"
   "${CC}" "${CFLAGS[@]}" -o "${OBJ}" "${SRC_DIR}/${SRC}"
   OBJECTS+=("${OBJ}")

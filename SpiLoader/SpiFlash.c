@@ -1,5 +1,5 @@
 #include "spiloader.h"
-#include "hal/al_hal_spi.h"
+#include "al_hal_spi.h"
 
 static struct al_spi_interface gSpi;
 

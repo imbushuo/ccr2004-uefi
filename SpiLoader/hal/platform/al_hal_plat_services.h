@@ -123,6 +123,53 @@ static inline uint32_t swap_uint32(uint32_t val)
 #define swap32_to_be(x)    swap_uint32(x)
 #define swap32_from_be(x)  swap_uint32(x)
 
+/* ---- Memory operations ---- */
+
+static inline void *
+al_memset (void *s, int c, unsigned long n)
+{
+  unsigned char *p = (unsigned char *)s;
+  while (n-- > 0)
+    *p++ = (unsigned char)c;
+  return s;
+}
+
+static inline void *
+al_memcpy (void *dst, const void *src, unsigned long n)
+{
+  unsigned char *d = (unsigned char *)dst;
+  const unsigned char *s2 = (const unsigned char *)src;
+  while (n-- > 0)
+    *d++ = *s2++;
+  return dst;
+}
+
+static inline int
+al_memcmp (const void *a, const void *b, unsigned long n)
+{
+  const unsigned char *p1 = (const unsigned char *)a;
+  const unsigned char *p2 = (const unsigned char *)b;
+  while (n-- > 0) {
+    if (*p1 != *p2)
+      return *p1 - *p2;
+    p1++;
+    p2++;
+  }
+  return 0;
+}
+
+/* ---- String operations ---- */
+
+static inline int
+al_strcmp (const char *a, const char *b)
+{
+  while (*a && (*a == *b)) {
+    a++;
+    b++;
+  }
+  return *(const unsigned char *)a - *(const unsigned char *)b;
+}
+
 /* ---- Misc ---- */
 
 /* AL_BIT / AL_BIT_64 defined in al_hal_reg_utils.h */

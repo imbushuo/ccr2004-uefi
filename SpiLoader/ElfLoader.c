@@ -258,6 +258,9 @@ SpiloaderJumpToImage (
 {
   uint64_t Sctlr;
 
+  /* Disarm watchdog timer and disable GIC delivery before handoff */
+  WatchdogDisarm ();
+
   CleanInvalidateDataCacheRange (SPILOADER_LOAD_ADDR, ReservedTop - SPILOADER_LOAD_ADDR);
   __asm__ volatile ("dsb sy" ::: "memory");
   __asm__ volatile ("ic iallu" ::: "memory");

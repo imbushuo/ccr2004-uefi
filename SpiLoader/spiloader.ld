@@ -6,6 +6,8 @@ SECTIONS
 
   .text : ALIGN(64) {
     KEEP(*(.text.entry))
+    . = ALIGN(2048);
+    KEEP(*(.text.exceptions))
     *(.text .text.*)
   }
 

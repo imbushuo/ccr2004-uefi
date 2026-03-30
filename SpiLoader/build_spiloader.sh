@@ -39,7 +39,7 @@ CFLAGS=(
   -fno-builtin
   -fno-common
   -fno-stack-protector
-  -fomit-frame-pointer
+  -fno-omit-frame-pointer
   -fno-asynchronous-unwind-tables
   -fno-unwind-tables
   -ffunction-sections
@@ -82,12 +82,15 @@ SOURCES_C=(
   Support.c
   SpiFlash.c
   ElfLoader.c
+  Exception.c
+  Watchdog.c
   hal/al_hal_spi.c
   hal/al_hal_pbs_stubs.c
 )
 
 SOURCES_S=(
   Entry.S
+  ExceptionVector.S
 )
 
 OBJECTS=()

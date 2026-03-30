@@ -22,12 +22,28 @@
 #define SPI_NOR_CMD_READ_DATA      0x03U
 #define SPI_NOR_CMD_READ_ID        0x9FU
 
+#define CCR2004_GICD_BASE          0xF0200000ULL
+#define CCR2004_GICR_BASE          0xF0280000ULL
+
 #define ARRAY_SIZE(a)              (sizeof (a) / sizeof ((a)[0]))
 
 typedef struct {
   uint64_t EntryPoint;
   uint64_t ReservedTop;
 } SPILOADER_RESULT;
+
+/*
+ * Exception frame saved by Exception.S vector table.
+ * Layout must match the assembly (288 bytes total).
+ */
+typedef struct {
+  uint64_t X[31];     /* x0..x30, offsets 0..240   */
+  uint64_t Sp;        /* pre-exception SP, off 248 */
+  uint64_t Elr;       /* ELR_ELx,          off 256 */
+  uint64_t Esr;       /* ESR_ELx,          off 264 */
+  uint64_t Far;       /* FAR_ELx,          off 272 */
+  uint64_t Spsr;      /* SPSR_ELx,         off 280 */
+} EXCEPTION_FRAME;
 
 typedef struct {
   unsigned char e_ident[16];
@@ -81,10 +97,16 @@ void SpiInitialize (void);
 int SpiFlashRead (uint32_t FlashOffset, void *Buffer, size_t Length);
 int SpiFlashReadJedecId (uint8_t JedecId[3]);
 
+void WatchdogInit (void);
+void WatchdogArm (uint32_t Seconds);
+void WatchdogDisarm (void);
+void DumpSpiControllerState (void);
+
 int LoadImageFromFlash (SPILOADER_RESULT *Result);
 
 void SpiloaderJumpToImage (uint64_t EntryPoint, uint64_t ReservedTop) __attribute__((noreturn));
 void SpiloaderPanic (const char *Message) __attribute__((noreturn));
+void SpiloaderExceptionHandler (uint64_t Type, EXCEPTION_FRAME *Frame);
 
 extern char __image_end[];
 extern char __bss_start[];
